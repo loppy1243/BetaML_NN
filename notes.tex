@@ -1,0 +1,4 @@
+Generally, the problem with the CatDNN seems to be overgeneralization. After training, the
+model becomes an almost-constant function, discovering only the area where the detector lies.
+In particular, this is for loss functions of the type
+\[ Q(X, y_1, y_2) = -log(\epsilon + X_{y_1,y_2}) + \lambda(\sum_{ij}X_{ij} - X_{y_1,y_2}). \]
