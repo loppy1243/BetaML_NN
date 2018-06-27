@@ -1,6 +1,6 @@
 module DenseNet
 
-include("../readdata.jl")
+include("readdata.jl")
 
 import BSON
 using Flux
@@ -91,7 +91,7 @@ function catmodel_train_main()
         BSON.@load MODELFILE model epoch
         println(" Done.")
     else
-        model, epoch = catmodel(CELLS, relu), 1
+        model, epoch = catmodel(2CELLS, relu), 1
 
         print("Initializing model parameters...")
         for param in params(model)
@@ -101,8 +101,7 @@ function catmodel_train_main()
     end
 
     println("Training model...")
-    train(MODELFILE, model, catloss(model, 0.001, 10), events, cells, epoch=epoch,
-          opt=x -> ADAM(x, 10))
+    train(MODELFILE, model, catloss(model), events, cells, epoch=epoch)
 end
 
 createpath(path) = if !ispath(path); mkpath(path) end
