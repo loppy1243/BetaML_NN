@@ -8,7 +8,7 @@ using Plots; gr()
 using Flux.Optimise: train!
 using Flux.Tracker: data
 
-const DATAFILE = "I:\\projects\\temp\\liddick\\/BetaScint2DEnergy.txt"
+const DATAFILE = "../BetaScint2DEnergy.txt"
 const TRAIN_RANGE = 1 : div(EVENTS, 3)
 const VAL_RANGE = div(EVENTS, 3)+1 : 2*div(EVENTS, 3)
 const TEST_RANGE = 2*div(EVENTS, 3)+1 : EVENTS
