@@ -8,33 +8,44 @@ using Plots; gr()
 using Flux.Optimise: train!
 using Flux.Tracker: data
 
-const DATAFILE = "I:\\projects\\temp\\liddick\\BetaScint2DEnergy.txt"
-const TRAIN_RANGE = 1 : div(EVENTS, 3)
-const VAL_RANGE = div(EVENTS, 3)+1 : 2*div(EVENTS, 3)
-const TEST_RANGE = 2*div(EVENTS, 3)+1 : EVENTS
-const BATCHES = 1000
-const MAX_E = 3060
+include("consts.jl")
+
+catloss(model; ϵ=1, λ=1) = (event, startcell) -> begin
+    pred = model(event)
+
+    -log(ϵ + max(0, pred[startcell...])) + abs(λ*(sum(pred) - pred[startcell...]))
+end
 
 function _train(file, model, loss, xs, ys; epoch=1, opt=SGD)
     batches = Iterators.partition(zip(xs, ys), BATCHES) |> collect
-    ixs_init = IntSet(indices(batches, 1))
-    ixs = copy(ixs_init)
 
-    for i = epoch:epoch+BATCHES
-        if isempty(ixs); ixs = copy(ixs_init) end
+    i = epoch
+    try
+        while i < epoch + BATCHES
+            batch = rand(batches)
 
-        k = rand(ixs |> collect)
-        batch = batches[k]
-        setdiff!(ixs, k)
+            lossval = sum(p -> loss(p...) |> data, batch)
+            println("Epoch ", i, ", loss: ", lossval)
+            
+            x, y = rand(batch)
+            plotevent(x, map(data, model(x)), cellpoint(y), loss(x, y) |> data) |> gui
 
-        lossval = sum(p -> loss(p...) |> data, batch)
-        println("Epoch ", i, ", loss: ", lossval)
-        
-        x, y = rand(batch)
-        plotevent(x, map(data, model(x)), cellpoint(y), loss(x, y) |> data) |> gui
+            train!(loss, batch, opt(params(model)))
 
-        train!(loss, batch, opt(params(model)))
-        BSON.@save file model epoch=i
+            if i % 100 == 0
+                print("Saving model to \"", file, "\"... ")
+                BSON.@save file model epoch=i
+                println(" Done.")
+            end
+
+            i += 1
+        end
+    finally
+        if i != 1
+            print("Saving model to \"", file, "\"...")
+            BSON.@save file model epoch=i
+            println(" Done.")
+        end
     end
 end
 train(file, model, loss, xs, ys; epoch=1, opt=SGD) = try
@@ -67,10 +78,10 @@ end
 plotpoint!(p) = plotpoint!(Plots.current(), p)
 
 function plotevent(event, pred_grid, point, lossval)
-    input_plt = spy(flipdim(event, 1))
+    input_plt = spy(flipdim(event, 1), colorbar=false)
     plotpoint!(point)
 
-    output_plt = spy(flipdim(pred_grid, 1), title="Loss="*string(lossval))
+    output_plt = spy(flipdim(pred_grid, 1), title="Loss="*string(lossval), colorbar=false)
 
     plot(layout=(1, 2), input_plt, output_plt, aspect_ratio=1)
 end
@@ -89,10 +100,10 @@ end
 
 createpath(path) = if !ispath(path); mkpath(path) end
 
-const MODELFILE = "catmodel.bson"
-include("catdnn.jl")
+const MODELFILE = "cat_pure_cnnmodel.bson"
+#include("catdnn.jl")
 #include("regdnn.jl")
+include("catcnn.jl")
 
-main() = catmodel_train_main()
-
+main() = catcnnmodel_train_main()
 end # module DenseNet
