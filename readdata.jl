@@ -21,7 +21,7 @@ function readdata(file)
      julienne(data[:, end-5:end], 2))
 end
 
-function readdata(file, range::AbstractRange{T}) where T <: Integer
+function readdata(file, range)
     @assert start(range) > 0
     buf = IOBuffer()
     open(file) do stream
