@@ -15,18 +15,6 @@ const TEST_RANGE = 2*div(EVENTS, 3)+1 : EVENTS
 const BATCHES = 1000
 const MAX_E = 3060
 
-catmodel(n, activ) =
-    Chain(x -> x[:]/MAX_E, Dense(CELLS, n, activ), Dense(n, CELLS), softmax,
-          x -> reshape(x, GRIDSIZE...))
-regmodel(n, activ) = Chain(Dense(CELLS, n, activ), Dense(n, 2))
-
-catloss(model, ϵ=1, scale=1) = (event, startcell) -> begin
-    pred = model(event)
-
-    -log(ϵ + pred[startcell...]) + scale*(sum(pred) - pred[startcell...])
-end
-regloss(model) = (event, startpos) -> norm(startpos - model(event))
-
 function _train(file, model, loss, xs, ys; epoch=1, opt=SGD)
     batches = Iterators.partition(zip(xs, ys), BATCHES) |> collect
     ixs_init = IntSet(indices(batches, 1))
@@ -55,8 +43,6 @@ catch ex
     ex isa InterruptException ? interrupt() : rethrow()
 end
 
-const MODELFILE = "catmodel.bson"
-
 function cellpoint(cell)
     xy = [cell[2], cell[1]]
 
@@ -80,32 +66,6 @@ function plotpoint!(plt, p)
 end
 plotpoint!(p) = plotpoint!(Plots.current(), p)
 
-function catmodel_train_main()
-    print("Reading data from \"", DATAFILE, "\"...")
-    events, inits = readdata(DATAFILE, TRAIN_RANGE)
-    cells = map(x -> pointcell(x[2:3]), inits)
-    println(" Done.")
-
-    if isfile(MODELFILE)
-        print("Loading model from \"", MODELFILE, "\"...")
-        BSON.@load MODELFILE model epoch
-        println(" Done.")
-    else
-        model, epoch = catmodel(2CELLS, relu), 1
-
-        print("Initializing model parameters...")
-        for param in params(model)
-            Flux.Tracker.data(param) .= 0
-        end
-        println(" Done.")
-    end
-
-    println("Training model...")
-    train(MODELFILE, model, catloss(model), events, cells, epoch=epoch)
-end
-
-createpath(path) = if !ispath(path); mkpath(path) end
-
 function plotevent(event, pred_grid, point, lossval)
     input_plt = spy(flipdim(event, 1))
     plotpoint!(point)
@@ -127,29 +87,11 @@ function plotmodel(dir, model, loss, events, points)
     end
 end
 
-function catmodel_train_plot()
-    print("Reading data from \"", DATAFILE, "\"...")
-    events, inits = readdata(DATAFILE, TRAIN_RANGE)
-    println(" Done.")
+createpath(path) = if !ispath(path); mkpath(path) end
 
-    points = map(x -> x[2:3], inits)
-
-    BSON.@load MODELFILE model
-
-    plotmodel("plots/test/", model, catloss(model), events, points)
-end
-
-function catmodel_validate_plot()
-    print("Reading data from \"", DATAFILE, "\"...")
-    events, inits = readdata(DATAFILE, VALID_RANGE)
-    println(" Done.")
-
-    points = map(x -> x[2:3], inits)
-
-    BSON.@load MODELFILE model
-
-    plotmodel("plots/validate/", model, catloss(model), events, points)
-end
+const MODELFILE = "catmodel.bson"
+include("catdnn.jl")
+#include("regdnn.jl")
 
 main() = catmodel_train_main()
 
