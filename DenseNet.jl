@@ -10,48 +10,42 @@ using Flux.Tracker: data
 
 include("consts.jl")
 
+julienne(A, dims) = mapslices(x -> [x], A, dims)
+julienne(f, A, dims) = mapslices(x -> [f(x)], A, dims)
+
 catloss(model; ϵ=1, λ=1) = (event, startcell) -> begin
     pred = model(event)
 
     -log(ϵ + max(0, pred[startcell...])) + abs(λ*(sum(pred) - pred[startcell...]))
 end
 
-function _train(file, model, loss, xs, ys; epoch=1, opt=SGD)
-    batches = Iterators.partition(zip(xs, ys), BATCHES) |> collect
+using Base.Iterators: partition
+function train(file, model, loss, xs, ys; lastepoch=1, opt=SGD)
+    batches = partition(zip(julienne(xs, (1, 2)), julienne(ys, 1)), BATCHSIZE) |> collect
 
-    i = epoch
-    try
-        while i < epoch + BATCHES
-            batch = rand(batches)
+    for epoch = lastepoch:lastepoch+EPOCHS try
+        batch = rand(batches)
 
-            lossval = sum(p -> loss(p...) |> data, batch)
-            println("Epoch ", i, ", loss: ", lossval)
-            
-            x, y = rand(batch)
-            plotevent(x, map(data, model(x)), cellpoint(y), loss(x, y) |> data) |> gui
+        lossval = sum(p -> loss(p...) |> data, batch)
+        println("Epoch ", epoch, ", loss: ", lossval)
+        
+        x, y = rand(batch)
+        plotevent(x, map(data, model(x)), cellpoint(y), loss(x, y) |> data) |> gui
 
-            train!(loss, batch, opt(params(model)))
+        train!(loss, batch, opt(params(model)))
 
-            if i % 100 == 0
-                print("Saving model to \"", file, "\"... ")
-                BSON.@save file model epoch=i
-                println(" Done.")
-            end
-
-            i += 1
-        end
-    finally
-        if i != 1
-            print("Saving model to \"", file, "\"...")
-            BSON.@save file model epoch=i
+        if epoch % 100 == 0
+            print("Saving model to \"", file, "\"... ")
+            BSON.@save file model epoch
             println(" Done.")
         end
-    end
-end
-train(file, model, loss, xs, ys; epoch=1, opt=SGD) = try
-    _train(file, model, loss, xs, ys; epoch=epoch, opt=opt)
-catch ex
-    ex isa InterruptException ? interrupt() : rethrow()
+    catch ex
+        ex isa InterruptException ? interrupt() : rethrow()
+    finally if epoch != 1
+        print("Saving model to \"", file, "\"...")
+        BSON.@save file model epoch
+        println(" Done.")
+    end end end
 end
 
 function cellpoint(cell)
@@ -100,7 +94,7 @@ end
 
 createpath(path) = if !ispath(path); mkpath(path) end
 
-const MODELFILE = "cat_pure_cnnmodel.bson"
+const MODELFILE = "cat_pure_cnnmodel_1.bson"
 #include("catdnn.jl")
 #include("regdnn.jl")
 include("catcnn.jl")

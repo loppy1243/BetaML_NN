@@ -12,13 +12,10 @@ const XYMIN = -[48, 48]/2 # = [-24, -24]
 const XYMAX = [48, 48]/2 # = [24, 24]
 const XYOFF = -[48, 48]/2 # = [-24, -24]
 
-julienne(A, dims) = squeeze(mapslices(x -> [x], A, dims), dims=dims)
-
 function readdata(file)
-    data = readdlm(file, Float32, dims=(ROWS, COLUMNS))
+    data = readdlm(file, Float32, dims=(ROWS, COLUMNS)).'
 
-    (map(x -> sparse(reshape(x, GRIDSIZE...)), julienne(data[:, 1:end-6], 2)),
-     julienne(data[:, end-5:end], 2))
+    (reshape(data[1:end-6, :], GRIDSIZE..., :), data[end-5:end, :], 2)
 end
 
 function readdata(file, range)
@@ -36,8 +33,7 @@ function readdata(file, range)
     end
 
     seekstart(buf)
-    data = readdlm(buf, Float32, dims=(length(range), COLUMNS))
+    data = readdlm(buf, Float32, dims=(length(range), COLUMNS)).'
 
-    (map(x -> sparse(reshape(x, GRIDSIZE...)), julienne(data[:, 1:end-6], 2)),
-     julienne(data[:, end-5:end], 2))
+    (reshape(data[1:end-6, :], GRIDSIZE..., :), data[end-5:end, :])
 end
