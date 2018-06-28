@@ -23,7 +23,8 @@ using Base.Iterators: partition
 function train(file, model, loss, xs, ys; lastepoch=1, opt=SGD)
     batches = partition(zip(julienne(xs, (1, 2)), julienne(ys, 1)), BATCHSIZE) |> collect
 
-    for epoch = lastepoch:lastepoch+EPOCHS try
+    epoch = lastepoch
+    try while epoch < lastepoch + EPOCHS
         batch = rand(batches)
 
         lossval = sum(p -> loss(p...) |> data, batch)
@@ -39,13 +40,15 @@ function train(file, model, loss, xs, ys; lastepoch=1, opt=SGD)
             BSON.@save file model epoch
             println(" Done.")
         end
-    catch ex
+
+        epoch += 1
+    end catch ex
         ex isa InterruptException ? interrupt() : rethrow()
     finally if epoch != 1
         print("Saving model to \"", file, "\"...")
         BSON.@save file model epoch
         println(" Done.")
-    end end end
+    end end
 end
 
 function cellpoint(cell)
