@@ -1,15 +1,3 @@
-module DenseNet
-
-include("readdata.jl")
-
-import BSON
-using Flux
-using Plots; gr()
-using Flux.Optimise: train!
-using Flux.Tracker: data
-
-include("consts.jl")
-
 julienne(A, dims) = mapslices(x -> [x], A, dims)
 julienne(f, A, dims) = mapslices(x -> [f(x)], A, dims)
 
@@ -54,6 +42,7 @@ end
 function cellpoint(cell)
     xy = [cell[2], cell[1]]
 
+    # =(xy - 1 + 1/2)
     @. (xy - 1/2)/GRIDSIZE*(XYMAX-XYMIN) + XYOFF
 end
 
@@ -96,11 +85,3 @@ function plotmodel(dir, model, loss, events, points)
 end
 
 createpath(path) = if !ispath(path); mkpath(path) end
-
-const MODELFILE = "cat_pure_cnnmodel_1.bson"
-#include("catdnn.jl")
-#include("regdnn.jl")
-include("catcnn.jl")
-
-main() = catcnnmodel_train_main()
-end # module DenseNet
