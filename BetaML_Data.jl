@@ -50,10 +50,11 @@ function cellpoint(cell)
     @. (xy - 1/2)/GRIDSIZE*(XYMAX-XYMIN) + XYOFF
 end
 function pointcell(p)
+    @show p
     fix(x) = iszero(x) ? oneunit(x) : x
     swap(v) = [v[2], v[1]]
 
-    (@. (p - XYOFF)/(XYMAX-XYMIN)*GRIDSIZE |> ceil |> Int |> fix) |> swap
+    (p - XYOFF)./(XYMAX-XYMIN).*GRIDSIZE .|> ceil .|> Int .|> fix |> swap
 end
 
 end # module BetaML_Data
