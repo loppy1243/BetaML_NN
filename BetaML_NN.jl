@@ -9,6 +9,6 @@ include("models.jl")
 include("loss.jl")
 include("catcnn.jl")
 
-main() = CatCNN.train("catcnn_onelayer.bson", CatCNN.model2)
+main() = CatCNN.train("catcnn_twolayer.bson", CatCNN.model1)
 
 end # module DenseNet

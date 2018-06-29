@@ -17,7 +17,8 @@ twolayer(activ; ch=1, ϵ=1, λ=1, η=0.1) =
                 x -> reshape(x, GRIDSIZE...)),
           catloss(ϵ=1, λ=1),
           x -> SGD(x, η),
-          :ch => ch, :activ => last(activ), :ϵ => ϵ, :λ => λ, :η => η)
+          :ch => ch, :activ => last(activ), :ϵ => ϵ, :λ => λ, :η => η,
+          :opt => "SGD")
 onelayer(; ϵ=1, λ=1, η=0.1) =
     Model(Chain(x -> pad(x/MAX_E),
                 x -> reshape(x, (GRIDSIZE+[2, 2])..., 1, 1),
@@ -27,9 +28,9 @@ onelayer(; ϵ=1, λ=1, η=0.1) =
                 x -> reshape(x, GRIDSIZE...)),
           catloss(ϵ=ϵ, λ=ϵ),
           x -> SGD(x, η),
-          :ϵ => ϵ, :λ => λ, :η => η)
+          :ϵ => ϵ, :λ => λ, :η => η, :opt => "SGD")
 
-const model1 = twolayer(relu=>"relu"; ch=1, ϵ=1, λ=1, η=0.1)
+const model1 = twolayer(relu=>"relu"; ch=1, ϵ=0.1, λ=1, η=0.01)
 const model2 = onelayer(ϵ=0.1, λ=1, η=0.001)
 
 using ..readdata, ..load, ..TRAIN_RANGE
