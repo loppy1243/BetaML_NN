@@ -6,9 +6,9 @@ import ..BetaML_NN
 using Flux
 using BetaML_Data
 
-using ..pad, ..readdata, ..load
+using ..pad, ..readdata, ..load, ..catloss, ..Model
 
-twolayer(activ; ch, ϵ, λ, η) =
+twolayer(activ; ch=1, ϵ=1, λ=1, η=0.1) =
     Model(Chain(x -> pad(x/MAX_E, width=2),
                 x -> reshape(x, (GRIDSIZE+[4, 4])..., 1, 1),
                 Conv((3, 3), 1=>ch, first(activ)),
@@ -20,7 +20,7 @@ twolayer(activ; ch, ϵ, λ, η) =
           x -> SGD(x, η),
           :ch => ch, :activ => last(activ), :ϵ => ϵ, :λ => λ, :η => η)
 
-onelayer(; ϵ, λ, η) =
+onelayer(; ϵ=1, λ=1, η=0.1) =
     Model(Chain(x -> pad(x/MAX_E),
                 x -> reshape(x, (GRIDSIZE+[2, 2])..., 1, 1),
                 Conv((3, 3), 1=>1),
@@ -39,7 +39,7 @@ function train(modelfile, model)
     events, points = readdata(DATAFILE)
     cells = mapslices(pointcell, inits[2:3, :], 1)
 
-    isfile(modelfile) && model = load(modelfile)
+    model, epoch = isfile(modelfile) ? load(modelfile) : (model, 1)
 
     BetaML_NN.train(modelfile, model, events, cells)
 end

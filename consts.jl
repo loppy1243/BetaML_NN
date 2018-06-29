@@ -1,4 +1,4 @@
-# EVENTS from "readdata.jl"
+using BetaML_Data: EVENTS
 
 const DATAFILE = "I:\\projects\\temp\\liddick\\BetaScint2DEnergy.txt"
 const TRAIN_RANGE = 1 : div(EVENTS, 3)

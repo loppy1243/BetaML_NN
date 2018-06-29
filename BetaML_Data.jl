@@ -55,3 +55,5 @@ function pointcell(p)
 
     (@. (p - XYOFF)/(XYMAX-XYMIN)*GRIDSIZE |> ceil |> Int |> fix) |> swap
 end
+
+end # module BetaML_Data
