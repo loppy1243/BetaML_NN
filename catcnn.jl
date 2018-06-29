@@ -36,7 +36,7 @@ const model2 = onelayer(ϵ=0.1, λ=1, η=0.001)
 using ..readdata, ..load, ..TRAIN_RANGE
 function train(modelfile, model)
     events, points = readdata(TRAIN_RANGE)
-    cells = mapslices(pointcell, inits[2:3, :], 1)
+    cells = mapslices(pointcell, points, 1)
 
     model, epoch = isfile(modelfile) ? load(modelfile) : (model, 1)
 
