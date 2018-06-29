@@ -6,8 +6,7 @@ import ..BetaML_NN
 using Flux
 using BetaML_Data
 
-using ..pad, ..readdata, ..load, ..catloss, ..Model
-
+using ..pad, ..catloss, ..Model
 twolayer(activ; ch=1, ϵ=1, λ=1, η=0.1) =
     Model(Chain(x -> pad(x/MAX_E, width=2),
                 x -> reshape(x, (GRIDSIZE+[4, 4])..., 1, 1),
@@ -34,9 +33,9 @@ onelayer(; ϵ=1, λ=1, η=0.1) =
 const model1 = twolayer(relu=>"relu"; ch=1, ϵ=1, λ=1, η=0.1)
 const model2 = onelayer(ϵ=0.1, λ=1, η=0.001)
 
-using ..readdata, ..load
+using ..readdata, ..load, ..TRAIN_RANGE
 function train(modelfile, model)
-    events, points = readdata(DATAFILE)
+    events, points = readdata(TRAIN_RANGE)
     cells = mapslices(pointcell, inits[2:3, :], 1)
 
     model, epoch = isfile(modelfile) ? load(modelfile) : (model, 1)
