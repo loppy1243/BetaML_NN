@@ -1,18 +1,14 @@
+include("BetaML_Data.jl")
+
 module BetaML_NN
 
-include("readdata.jl")
-
-import BSON
-using Flux
-using Plots; gr()
-using Flux.Optimise: train!
-using Flux.Tracker: data
-
 include("consts.jl")
-include("main.jl")
-
-const MODELFILE = "cat_pure_cnnmodel_1.bson"
+include("util.jl")
+include("io.jl")
+include("models.jl")
+include("loss.jl")
 include("catcnn.jl")
 
-main() = catcnnmodel_train_main()
+main() = CatCNN.train("catcnn_onelayer.bson", CatCNN.model2)
+
 end # module DenseNet

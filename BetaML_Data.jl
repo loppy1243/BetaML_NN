@@ -1,6 +1,10 @@
+module BetaML_Data
+
 using Base.Iterators: drop, take
 using IterTools: takenth, chain
 using Lazy: @>
+
+export EVENTS, COLUMNS, ROWS, GRIDSIZE, CELLS, XYMIN, XYMAX, XYOFF
 
 const EVENTS = 10^6
 const COLUMNS = 16*16 + 6
@@ -12,13 +16,13 @@ const XYMIN = -[48, 48]/2 # = [-24, -24]
 const XYMAX = [48, 48]/2 # = [24, 24]
 const XYOFF = -[48, 48]/2 # = [-24, -24]
 
-function readdata(file)
+function read(file)
     data = readdlm(file, Float32, dims=(ROWS, COLUMNS)).'
 
     (reshape(data[1:end-6, :], GRIDSIZE..., :), data[end-5:end, :], 2)
 end
 
-function readdata(file, range)
+function read(file, range)
     @assert start(range) > 0
     buf = IOBuffer()
     open(file) do stream
@@ -36,4 +40,18 @@ function readdata(file, range)
     data = readdlm(buf, Float32, dims=(length(range), COLUMNS)).'
 
     (reshape(data[1:end-6, :], GRIDSIZE..., :), data[end-5:end, :])
+end
+
+export cellpoint, pointcell
+function cellpoint(cell)
+    xy = [cell[2], cell[1]]
+
+    # =(xy - 1 + 1/2)
+    @. (xy - 1/2)/GRIDSIZE*(XYMAX-XYMIN) + XYOFF
+end
+function pointcell(p)
+    fix(x) = iszero(x) ? oneunit(x) : x
+    swap(v) = [v[2], v[1]]
+
+    (@. (p - XYOFF)/(XYMAX-XYMIN)*GRIDSIZE |> ceil |> Int |> fix) |> swap
 end

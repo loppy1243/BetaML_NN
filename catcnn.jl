@@ -1,67 +1,47 @@
+export CatCNN
 module CatCNN
 
-# Alternative: create zero array of correct size and fill in with A.
-function pad(A, val=0; width=1)
-    ret = A
-    dims = size(A) |> collect
-    off = zeros(Int, ndims(A))
-    for i = 1:length(dims)
-        ds = dims + off
-        zs = fill(val, ds[1:i-1]..., 1, ds[i+1:end]...)
-        for _ = 1:width
-            ret = cat(i, zs, ret)
-            ret = cat(i, ret, zs)
-        end
-        off[i] += 2width
-    end
+import ..BetaML_NN
 
-    ret
-end
+using Flux
+using BetaML_Data
 
-# Retest
-catcnnmodel(activ) = 
-    Chain(x -> pad(x),
-          x -> reshape(x, (GRIDSIZE+[2, 2])..., 1, 1),
-          Conv((3, 3), 1=>1, activ),
-          x -> reshape(x, CELLS),
-          Dense(CELLS, CELLS),
-          x -> reshape(x, GRIDSIZE...),
-          softmax)
+using ..pad, ..readdata, ..load
 
-cat_pure_cnnmodel(ch, activ) =
-    Chain(x -> pad(x/MAX_E, width=2),
-          x -> reshape(x, (GRIDSIZE+[4, 4])..., 1, 1),
-          Conv((3, 3), 1=>ch, activ),
-          Conv((3, 3), ch=>1),
-          x -> reshape(x, CELLS),
-          softmax,
-          x -> reshape(x, GRIDSIZE...))
+twolayer(activ; ch, ϵ, λ, η) =
+    Model(Chain(x -> pad(x/MAX_E, width=2),
+                x -> reshape(x, (GRIDSIZE+[4, 4])..., 1, 1),
+                Conv((3, 3), 1=>ch, first(activ)),
+                Conv((3, 3), ch=>1),
+                x -> reshape(x, CELLS),
+                softmax,
+                x -> reshape(x, GRIDSIZE...)),
+          catloss(ϵ=1, λ=1),
+          x -> SGD(x, η),
+          :ch => ch, :activ => last(activ), :ϵ => ϵ, :λ => λ, :η => η)
 
-cat_pure_cnnmodel_1(activ) =
-    Chain(x -> pad(x/MAX_E),
-          x -> reshape(x, (GRIDSIZE+[2, 2])..., 1, 1),
-          Conv((3, 3), 1=>1),
-          x -> reshape(x, CELLS),
-          softmax,
-          x -> reshape(x, GRIDSIZE...))
+onelayer(; ϵ, λ, η) =
+    Model(Chain(x -> pad(x/MAX_E),
+                x -> reshape(x, (GRIDSIZE+[2, 2])..., 1, 1),
+                Conv((3, 3), 1=>1),
+                x -> reshape(x, CELLS),
+                softmax,
+                x -> reshape(x, GRIDSIZE...)),
+          catloss(ϵ=ϵ, λ=ϵ),
+          x -> SGD(x, η),
+          :ϵ => ϵ, :λ => λ, :η => η)
 
-function catcnnmodel_train_main()
-    print("Reading data from \"", DATAFILE, "\"...")
-    events, inits = readdata(DATAFILE, TRAIN_RANGE) .|> x -> convert(Array{Float64}, x)
+const model1 = twolayer(relu=>"relu"; ch=1, ϵ=1, λ=1, η=0.1)
+const model2 = onelayer(ϵ=0.1, λ=1, η=0.001)
+
+using ..readdata, ..load
+function train(modelfile, model)
+    events, points = readdata(DATAFILE)
     cells = mapslices(pointcell, inits[2:3, :], 1)
-    println(" Done.")
 
-    if isfile(MODELFILE)
-        print("Loading model from \"", MODELFILE, "\"...")
-        BSON.@load MODELFILE model epoch
-        println(" Done.")
-    else
-        model, epoch = cat_pure_cnnmodel_1(relu), 1
-    end
+    isfile(modelfile) && model = load(modelfile)
 
-    println("Training model...")
-    train(MODELFILE, model, catloss(model, ϵ=0.01, λ=1), events, cells, lastepoch=epoch,
-          opt=x -> SGD(x, 0.001))
+    BetaML_NN.train(modelfile, model, events, cells)
 end
 
 end # module CatCNN
