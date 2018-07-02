@@ -17,9 +17,9 @@ const XYMAX = [48, 48]/2 # = [24, 24]
 const XYOFF = -[48, 48]/2 # = [-24, -24]
 
 function read(file)
-    data = readdlm(file, Float32, dims=(ROWS, COLUMNS)).'
+    data = readdlm(file, Float32, dims=(ROWS, COLUMNS))
 
-    (reshape(data[1:end-6, :], GRIDSIZE..., :), data[end-5:end, :], 2)
+    (reshape(data[:, 1:end-6], :, GRIDSIZE...), data[:, end-5:end])
 end
 
 function read(file, range)
@@ -37,23 +37,28 @@ function read(file, range)
     end
 
     seekstart(buf)
-    data = readdlm(buf, Float32, dims=(length(range), COLUMNS)).'
+    data = readdlm(buf, Float32, dims=(length(range), COLUMNS))
 
-    (reshape(data[1:end-6, :], GRIDSIZE..., :), data[end-5:end, :])
+    @show size(data)
+    (reshape(data[:, 1:end-6], :, GRIDSIZE...), data[:, end-5:end])
 end
 
-export cellpoint, pointcell
+export cellpoint, pointcellfrac, pointcell
 function cellpoint(cell)
     xy = [cell[2], cell[1]]
 
     # =(xy - 1 + 1/2)
     @. (xy - 1/2)/GRIDSIZE*(XYMAX-XYMIN) + XYOFF
 end
-function pointcell(p)
-    fix(x) = iszero(x) ? oneunit(x) : x
+function pointcellfrac(p)
     swap(v) = [v[2], v[1]]
 
-    (p - XYOFF)./(XYMAX-XYMIN).*GRIDSIZE .|> ceil .|> Int .|> fix |> swap
+    (p - XYOFF)./(XYMAX-XYMIN).*GRIDSIZE |> swap
+end
+function pointcell(p)
+    fix(x) = iszero(x) ? oneunit(x) : x
+
+    pointcellfrac(p) .|> ceil .|> Int .|> fix
 end
 
 end # module BetaML_Data
