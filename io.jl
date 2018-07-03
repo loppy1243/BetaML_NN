@@ -1,0 +1,41 @@
+import BSON
+
+using Plots
+using BetaML_Data
+
+function save(file, model, epoch)
+    print("Saving model to \"", file, "\"... ")
+    BSON.@save file model epoch
+    println(" Done.")
+end
+function load(file)
+    print("Loading model from \"", file, "\"...")
+    ret = BSON.load(file)
+    println(" Done.")
+    ret
+end
+function readdata(range)
+    print("Reading data from \"", DATAFILE, "\"...")
+    events, inits = BetaML_Data.read(DATAFILE, range) .|> x -> convert(Array{Float64}, x)
+    println(" Done.")
+    (events, inits[:, 2:3])
+end
+
+function plotpoint!(plt, p)
+    xmin, xmax = xlims(plt)
+    ymin, ymax = ylims(plt)
+
+    xy = @. (p - XYOFF)/(XYMAX-XYMIN)*[xmax-xmin, ymax-ymin] + [xmin, ymin]
+
+    scatter!(plt, [xy[1]], [xy[2]], legend=false)
+end
+plotpoint!(p) = plotpoint!(Plots.current(), p)
+
+function plotevent(event, pred_grid, point, lossval)
+    input_plt = spy(flipdim(event, 1), colorbar=false)
+    plotpoint!(point)
+
+    output_plt = spy(flipdim(pred_grid, 1), title="Loss="*string(lossval), colorbar=false)
+
+    plot(layout=(1, 2), input_plt, output_plt, aspect_ratio=1)
+end
