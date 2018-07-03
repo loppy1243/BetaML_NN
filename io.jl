@@ -21,15 +21,15 @@ function readdata(range)
     (events, inits[:, 2:3])
 end
 
-function plotpoint!(plt, p)
+function plotpoint!(plt, p; kws...)
     xmin, xmax = xlims(plt)
     ymin, ymax = ylims(plt)
 
-    xy = @. (p - XYOFF)/(XYMAX-XYMIN)*[xmax-xmin, ymax-ymin] + [xmin, ymin]
+    xy = @. (p - XYOFF)/(XYMAX-XYMIN)*[xmax-xmin, ymin-ymax] + [xmin, ymax]
 
-    scatter!(plt, [xy[1]], [xy[2]], legend=false)
+    scatter!(plt, [xy[1]], [xy[2]], legend=false; kws...)
 end
-plotpoint!(p) = plotpoint!(Plots.current(), p)
+plotpoint!(p; kws...) = plotpoint!(Plots.current(), p; kws...)
 
 function plotevent(event, pred_grid, point, lossval)
     input_plt = spy(flipdim(event, 1), colorbar=false)

@@ -25,24 +25,18 @@ include("consts.jl")
 include("util.jl")
 include("io.jl")
 include("models.jl")
-include("loss.jl")
 include("catcnn.jl")
+include("regcnn.jl")
 
-main() = main(readdata(VALID_RANGE)...)
-function main(events, points)
+function main(events, points) 
     Plots.gr()
 
-    print("Converting points -> cells...")
-    cells = mapslices(pointcell, points, 2)
-    println(" Done.")
+    path = "plots/validation/hists"
 
-    onelayer = CatCNN.accuracies("catcnn_onelayer.bson", events, cells, model_name="One Layer CNN")
-    twolayer = CatCNN.accuracies("catcnn_twolayer.bson", events, cells, model_name="Two Layer CNN")
-
-    println("One Layer CNN: ", onelayer[1])
-    println("Two Layer CNN: ", twolayer[1])
-    !ispath("plots/validation/acc_hists") && mkpath("plots/validation/acc_hists")
-    Plots.png(onelayer[2], "plots/validation/acc_hists/catcnn_onelayer.png")
-    Plots.png(twolayer[2], "plots/validation/acc_hists/catcnn_twolayer.png")
+    hist = RegCNN.disthist("regcnn_staggered.bson", events, points, model_name="Staggered")
+    
+    !ispath(path) && mkpath(path)
+    Plots.png(hist, path*"/regcnn_staggered.png")
 end
+
 end # module DenseNet

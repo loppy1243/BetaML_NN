@@ -39,7 +39,6 @@ onelayer(; ϵ=1, λ=1, η=0.1) =
 const model1 = twolayer(relu=>"relu"; ch=1, ϵ=0.1, λ=1, η=0.01)
 const model2 = onelayer(ϵ=0.1, λ=1, η=0.001)
 
-train(modelfile, model) = train(modelfile, model, BetaML_NN.readdata(TRAIN_RANGE)...)
 function train(modelfile, model, events, points)
     print("Converting points -> cells...")
     cells = mapslices(pointcell, points, 2)
@@ -47,10 +46,13 @@ function train(modelfile, model, events, points)
 
     model, epoch = isfile(modelfile) ? BetaML_NN.load(modelfile) : (model, 1)
 
-    BetaML_NN.train(modelfile, model, events, cells)
+    callback(event, cell) = plotevent(event, model(event) |> Flux.Tracker.data, cellpoint(cell),
+                                      applyloss(model, event, cell)) |> gui
+
+    BetaML_NN.train(modelfile, model, events, cells, callback=callback)
 end
 
-predict(model, event) = ind2sub(event, applymodel(model, event) |> indmax) |> collect
+predict(model, event) = ind2sub(event, model(event) |> Flux.Tracker.data |> indmax) |> collect
 predict(model) = event -> predict(model, event)
 
 @modelfunc function xyr_hists(model::Model, events, cells; model_name="")

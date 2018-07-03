@@ -18,8 +18,6 @@ function Model(model, lossgen, opt, pairs...)
 end
 
 (m::Model{M, L, O})(x) where {M, L<:Function, O<:Function} = m.model(x)
-applymodel(m::Model) = x -> m.model(x) |> data
-applymodel(m::Model, x) = m.model(x) |> data
 
 loss(m::Model) = m.loss
 loss(m::Model, x, y) = m.loss(x, y)
@@ -32,7 +30,7 @@ Flux.params(m::Model) = Flux.params(m.model)
 # Can we just set m.optimizer = optimizer(params(m)) ?
 optimizer(m::Model) = m.optimizer(Flux.params(m))
 
-function train(file, model, xs, ys; lastepoch=1)
+function train(file, model, xs, ys; lastepoch=1, callback=() -> nothing)
     println("Training model...")
 
     batches = Iterators.partition(zip(julienne(xs, 2:3), julienne(ys, 2)), BATCHSIZE) #=
@@ -46,8 +44,7 @@ function train(file, model, xs, ys; lastepoch=1)
         println("Epoch ", epoch, ", loss: ", lossval)
         
         x, y = rand(batch)
-        plotevent(x, applymodel(model, x), BetaML_Data.cellpoint(y),
-                  applyloss(model, x, y)) |> gui
+        callback(x, y)
 
         Flux.Optimise.train!(loss(model), batch, optimizer(model))
 
