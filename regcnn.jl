@@ -5,6 +5,8 @@ using Flux
 using BetaML_Data
 using ..BetaML_NN
 
+regloss() = model -> (event, point) -> norm(model(event) - point)
+
 convdense(activ; η=0.1) =
     Model(Chain(x -> pad(x/MAX_E),
                 x -> reshape(x, (GRIDSIZE+[2, 2])..., 1, 1),

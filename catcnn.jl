@@ -6,7 +6,13 @@ using Plots
 using BetaML_Data
 using ..BetaML_NN
 
-using ..pad, ..catloss
+catloss(; ϵ=1, λ=1) = model -> (event, startcell) -> begin
+    pred = model(event)
+
+    -log(ϵ + max(0, pred[startcell...])) + abs(λ*(sum(pred) - pred[startcell...]))
+end
+
+using ..pad
 twolayer(activ; ch=1, ϵ=1, λ=1, η=0.1) =
     Model(Chain(x -> pad(x/MAX_E, width=2),
                 x -> reshape(x, (GRIDSIZE+[4, 4])..., 1, 1),
@@ -15,7 +21,7 @@ twolayer(activ; ch=1, ϵ=1, λ=1, η=0.1) =
                 x -> reshape(x, CELLS),
                 softmax,
                 x -> reshape(x, GRIDSIZE...)),
-          catloss(ϵ=1, λ=1),
+          catloss(ϵ=ϵ, λ=λ),
           x -> SGD(x, η),
           :ch => ch, :activ => last(activ), :ϵ => ϵ, :λ => λ, :η => η,
           :opt => "SGD")
@@ -44,21 +50,11 @@ function train(modelfile, model, events, points)
     BetaML_NN.train(modelfile, model, events, cells)
 end
 
-validate(modelfile::AbstractString; model_name="") =
-    validate(BetaML_NN.load(modelfile)[:model], model_name=model_name)
-validate(modelfile::AbstractString, events, cells; model_name="") =
-    validate(BetaML_NN.load(modelfile)[:model], events, cells, model_name=model_name)
-validate(model::Model, model_name="") =
-    validate(model, BetaML_NN.readdata(VALID_RANGE)..., model_name=model_name)
-validate(model_pairs; model_names=fill("", length(model_pairs))) =
-    map((m, n) -> validate(m, model_name=n), models, model_names)
-validate(models, events, cells; model_names=fill("", length(model_pairs))) =
-    cells((m, n) -> validate(m, events, cells, model_name=n), models, model_names)
-function validate(model::Model, events, cells; model_name="")
-    preds = mapslices(events, 2:3) do event
-        pred = applymodel(model, event)
-        ind2sub(event, indmax(pred)) |> collect
-    end |> x -> squeeze(x, 3)
+predict(model, event) = ind2sub(event, applymodel(model, event) |> indmax) |> collect
+predict(model) = event -> predict(model, event)
+
+@modelfunc function xyr_hists(model::Model, events, cells; model_name="")
+    preds = squeeze(mapslices(predict(model), events, 2:3), 3)
 
     diff = preds - cells
     xs, ys = diff[:, 1], diff[:, 2]
@@ -69,5 +65,18 @@ function validate(model::Model, events, cells; model_name="")
                    yaxis=(:log10, (1, Inf))),
          histogram(ys, legend=false, xlabel="y diff", yaxis=(:log10, (1, Inf))),
          histogram(rs, legend=false, xlabel="radial diff", yaxis=(:log10, (1, Inf))))
-end 
+end
+
+@modelfunc function accuracies(model::Model, events, cells; model_name="")
+    numevents = size(events, 1)
+
+    preds = squeeze(mapslices(predict(model), events, 2:3), 3)
+
+    accs = map(0:8) do i
+        count(all(abs.(preds - cells) .<= [i i], 2)) / numevents
+    end
+
+    (accs, histogram(accs, legend=false, xlabel="Accuracy", title=model_name))
+end
+
 end # module CatCNN

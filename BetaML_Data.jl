@@ -39,7 +39,6 @@ function read(file, range)
     seekstart(buf)
     data = readdlm(buf, Float32, dims=(length(range), COLUMNS))
 
-    @show size(data)
     (reshape(data[:, 1:end-6], :, GRIDSIZE...), data[:, end-5:end])
 end
 
