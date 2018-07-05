@@ -3,6 +3,18 @@ export Model, applymodel, loss, applyloss, hyperparams, optimizer
 import Flux
 using Flux.Tracker: data
 
+struct Losses <: Function
+    funcs::Vector{Function}
+
+    Losses(x::Vector{Function}) = new(x)
+    Losses(xs...) = new(collect(Function, xs))
+end
+(ls::Losses)(xs...) = map(l -> l(xs...), ls)
+
+Base.convert(::Type{Losses}, t::NTuple{N, Function}) where N = Losses(collect(t))
+Base.convert(::Type{Losses}, t::AbstractVector{Function}) = Losses(collect(t))
+Base.getindex(ls::Losses, i) = ls.funcs[i]
+
 struct Model{M, L<:Function, O<:Function} <: Function
     model::M
     loss::L
@@ -13,6 +25,10 @@ struct Model{M, L<:Function, O<:Function} <: Function
         new(model, loss, opt, Dict(pairs...))
 end
 function Model(model, lossgen, opt, pairs...)
+    loss = convert(Losses, map(l -> l(model), lossgen))
+    Model{typeof(model), Losses, typeof(opt)}(model, loss, opt, pairs...)
+end
+function Model(model, lossgen::Function, opt, pairs...)
     loss = lossgen(model)
     Model{typeof(model), typeof(loss), typeof(opt)}(model, loss, opt, pairs...)
 end
@@ -21,8 +37,6 @@ end
 
 loss(m::Model) = m.loss
 loss(m::Model, x, y) = m.loss(x, y)
-applyloss(m::Model) = (x, y) -> m.loss(x, y) |> data
-applyloss(m::Model, x, y) = m.loss(x, y) |> data
 
 hyperparams(m::Model) = m.params
 Flux.params(m::Model) = Flux.params(m.model)

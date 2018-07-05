@@ -27,16 +27,13 @@ include("io.jl")
 include("models.jl")
 include("catcnn.jl")
 include("regcnn.jl")
+include("other.jl")
 
 function main(events, points) 
     Plots.gr()
 
-    path = "plots/validation/hists"
-
-    hist = RegCNN.disthist("regcnn_staggered.bson", events, points, model_name="Staggered")
-    
-    !ispath(path) && mkpath(path)
-    Plots.png(hist, path*"/regcnn_staggered.png")
+    OtherNN.train("othernn.bson", OtherNN.model1(), permutedims(events, [2, 3, 1]),
+                  permutedims(points, [2, 1]))
 end
 
 end # module DenseNet
