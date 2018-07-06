@@ -19,18 +19,19 @@ struct Model{M, L<:Function, O<:Function} <: Function
     model::M
     loss::L
     optimizer::O
-    params::Dict{Symbol}
+    params::Vector{Any}
+    hyperparams::Dict{Symbol}
 
-    Model{M, L, O}(model, loss, opt, pairs...) where {M, L<:Function, O<:Function} =
-        new(model, loss, opt, Dict(pairs...))
+    Model{M, L, O}(model, loss, opt, params, pairs...) where {M, L<:Function, O<:Function} =
+        new(model, loss, opt, params, Dict(pairs...))
 end
-function Model(model, lossgen, opt, pairs...)
+function Model(model, lossgen, opt, params, pairs...)
     loss = convert(Losses, map(l -> l(model), lossgen))
-    Model{typeof(model), Losses, typeof(opt)}(model, loss, opt, pairs...)
+    Model{typeof(model), Losses, typeof(opt)}(model, loss, opt, params, pairs...)
 end
-function Model(model, lossgen::Function, opt, pairs...)
+function Model(model, lossgen::Function, opt, params, pairs...)
     loss = lossgen(model)
-    Model{typeof(model), typeof(loss), typeof(opt)}(model, loss, opt, pairs...)
+    Model{typeof(model), typeof(loss), typeof(opt)}(model, loss, opt, params, pairs...)
 end
 
 (m::Model{M, L, O})(x) where {M, L<:Function, O<:Function} = m.model(x)
@@ -38,8 +39,8 @@ end
 loss(m::Model) = m.loss
 loss(m::Model, x, y) = m.loss(x, y)
 
-hyperparams(m::Model) = m.params
-Flux.params(m::Model) = Flux.params(m.model)
+hyperparams(m::Model) = m.hyperparams
+Flux.params(m::Model) = m.params
 
 # Can we just set m.optimizer = optimizer(params(m)) ?
 optimizer(m::Model) = m.optimizer(Flux.params(m))

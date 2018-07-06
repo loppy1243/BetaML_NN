@@ -13,28 +13,35 @@ catloss(; ϵ=1, λ=1) = model -> (event, startcell) -> begin
 end
 
 using ..pad
-twolayer(activ; ch=1, ϵ=1, λ=1, η=0.1) =
+function twolayer(activ; ch=1, ϵ=1, λ=1, η=0.1)
+    convlayer = Chain(Conv((3, 3), 1=>ch, first(activ), pad=(1, 1)),
+                      Conv((3, 3), ch=>1, pad=(1, 1)))
+
     Model(Chain(x -> pad(x/MAX_E, width=2),
                 x -> reshape(x, (GRIDSIZE+[4, 4])..., 1, 1),
-                Conv((3, 3), 1=>ch, first(activ)),
-                Conv((3, 3), ch=>1),
+                convlayer,
                 x -> reshape(x, CELLS),
                 softmax,
                 x -> reshape(x, GRIDSIZE...)),
           catloss(ϵ=ϵ, λ=λ),
           x -> SGD(x, η),
+          params(convlayer),
           :ch => ch, :activ => last(activ), :ϵ => ϵ, :λ => λ, :η => η,
           :opt => "SGD")
-onelayer(; ϵ=1, λ=1, η=0.1) =
+end
+function onelayer(; ϵ=1, λ=1, η=0.1)
+    convlayer = Conv((3, 3), 1=>1)
     Model(Chain(x -> pad(x/MAX_E),
                 x -> reshape(x, (GRIDSIZE+[2, 2])..., 1, 1),
-                Conv((3, 3), 1=>1),
+                convlayer,
                 x -> reshape(x, CELLS),
                 softmax,
                 x -> reshape(x, GRIDSIZE...)),
           catloss(ϵ=ϵ, λ=ϵ),
           x -> SGD(x, η),
+          params(convlayer),
           :ϵ => ϵ, :λ => λ, :η => η, :opt => "SGD")
+end
 
 const model1 = twolayer(relu=>"relu"; ch=1, ϵ=0.1, λ=1, η=0.01)
 const model2 = onelayer(ϵ=0.1, λ=1, η=0.001)

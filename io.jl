@@ -3,17 +3,20 @@ import BSON
 using Plots
 using BetaML_Data
 
-function save(file, model, epoch)
+function save(file, model)
     print("Saving model to \"", file, "\"... ")
-    BSON.@save file model epoch
+    BSON.@save file model
     println(" Done.")
 end
+
 function load(file)
     print("Loading model from \"", file, "\"...")
-    ret = BSON.load(file)
+    ret = BSON.load(file)[:model]
     println(" Done.")
     ret
 end
+try_load(file, model) = isfile(file) ? load(file) : model
+
 function readdata(range)
     print("Reading data from \"", DATAFILE, "\"...")
     events, inits = BetaML_Data.read(DATAFILE, range) .|> x -> convert(Array{Float64}, x)

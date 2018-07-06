@@ -1,5 +1,7 @@
 module OtherNN
 
+import NNlib
+
 using Flux
 using Plots
 using BetaML_Data
@@ -8,7 +10,7 @@ using ..BetaML_NN
 using Flux: throttle, Tracker.data
 
 distloss(ϵ, λ) = model -> (events, points) -> begin
-    pred_dists = model(events)[1]
+    pred_dists = model(events, Val{:dist})
     cells = mapslices(pointcell, points, 1)
 
     sum(1:size(cells, 2)) do i
@@ -16,6 +18,19 @@ distloss(ϵ, λ) = model -> (events, points) -> begin
         cell_prob = pred_dist[cells[:, i]...]
 
         -log(ϵ + max(0, cell_prob)) + abs(λ*(sum(pred_dist) - cell_prob))
+    end
+end
+
+distloss2(ϵ) = model -> (events, points) -> begin
+    pred_dists = model(events, Val{:dist})
+    cells = mapslice(pointcell, points, 1)
+
+    sum(1:size(cells, 2)) do i
+        pred_dist = pred_dists[:, :, i]
+        cell_prob = pred_dist[cells[:, i]...]
+
+        -log(ϵ + max(0, cell_prob)) + log(1+ϵ - min(1, cell_prob)) #=
+     =# -sum(x -> log(1+ϵ - min(1, x)), pred_dist)
     end
 end
 
@@ -33,23 +48,33 @@ regloss(model) = (events, points) -> begin
     end
 end
 
-function other(activ; ϵ=1, λ=1, η=0.1)
-    convlayer = Conv((3, 3), 1=>1, pad=(1, 1))
-    pointlayer = Conv((3, 3), 1=>2, pad=(1, 1))
+struct ConvUnbiased{N, A<:AbstractArray{Float64, 4}, F<:Function}
+    activ::F
+    weights::A
+    stride::NTuple{N, Int}
+    pad::NTuple{N, Int}
+end
+Flux.treelike(ConvUnbiased)
+ConvUnbiased(dims::NTuple{N}, chs, activ=identity; stride=map(_->1, dims),
+             pad=map(_->1, dims), init=rand) where N =
+    ConvUnbiased(activ, param(init(dims..., chs...)), stride, pad)
+(c::ConvUnbiased)(x) = c.activ.(NNlib.conv(x, c.weights, stride=c.stride, pad=c.pad))
 
-    chain1 = Chain(convlayer,
-                   x -> reshape(x, CELLS, :),
-                   softmax,
-                   x -> reshape(x, GRIDSIZE..., :))
-    chain2 = Chain(convlayer,
-                   x -> first(activ).(x),
-                   pointlayer)
+function other(activ; ϵ=1, λ=1, η=0.1, N=50)
+    distchain = Chain(Conv((3, 3), 1=>1, pad=(1, 1)),
+                      x -> reshape(x, CELLS, :),
+                      softmax,
+                      x -> reshape(x, GRIDSIZE..., :))
+    pointchain = Chain(ConvUnbiased((5, 5), 1=>N, first(activ), pad=(2, 2), init=zeros),
+                       ConvUnbiased((5, 5), N=>2, pad=(2, 2), init=zeros))
 
-    Model(Chain(x -> reshape(x, GRIDSIZE..., 1, :),
-                x -> (chain1(x), chain2(x))),
-          (distloss(ϵ, λ), regloss),
-          x -> SGD(x, η),
-          :activ => last(activ), :opt => "SGD", :ϵ => ϵ, :λ => λ, :η => η)
+    regularize(x) = reshape(x, GRIDSIZE..., 1, :)
+    model(x) = x |> Chain(regularize, y -> (distchain(y), pointchain(y)))
+    model(x, ::Type{Val{:dist}}) = x |> Chain(regularize, distchain)
+    model(x, ::Type{Val{:point}}) = x |> Chain(reguarize, pointchain)
+
+    Model(model, (distloss(ϵ, λ), regloss), x -> SGD(x, η),
+          :activ => last(activ), :opt => "SGD", :ϵ => ϵ, :λ => λ, :η => η, :N => N)
 end
 
 function batch(xs, sz)
@@ -62,65 +87,85 @@ function batch(xs, sz)
     ret
 end
 
-model1() = other(relu=>"relu"; ϵ=0.1, λ=1, η=0.1)
+model1() = other(relu=>"relu"; ϵ=0.1, λ=1, η=0.1, N=50)
+
+function dist_relay_info(batchnum, model, events, points)
+    i = rand(1:size(events, 3))
+    pred_dist = model(events[:, :, [i]])[1] |> data |> x -> squeeze(x, 3)
+
+    println("$batchnum:, Event $i, Loss = ",
+            loss(model)[1](events[:, :, [i]], points[:, [i]]) |> data)
+
+    lplt = spy(flipdim(events[:, :, i], 1), colorbar=false, title="Event")
+    BetaML_NN.plotpoint!(points[:, i], color=:green)
+    rplt = spy(flipdim(pred_dist, 1), colorbar=false, title="Pred. dist.")
+    BetaML_NN.plotpoint!(points[:, i], color=:green)
+
+    plot(layout=(1, 2), lplt, rplt, aspect_ratio=1)
+    gui()
+end
+
+function reg_relay_info(batchnum, model, events, points)
+  i = rand(1:size(events, 3))
+  pred = model(events[:, :, [i]]) .|> data
+  cell_point = cellpoint(pointcell(points[:, i]))
+  pred_dist = pred[1] |> x -> squeeze(x, 3)
+  pred_cell = ind2sub(pred_dist, indmax(pred_dist)) |> collect
+  pred_cell_point = cellpoint(pred_cell)
+  pred_point = pred_cell_point + pred[2][pred_cell..., :, 1]
+
+  println("$batchnum: Event $i, Loss = ",
+          loss(model)[2](events[:, :, [i]], points[:, [i]]) |> data)
+
+  lplt = spy(flipdim(events[:, :, i], 1), colorbar=false, title="Event")
+  BetaML_NN.plotpoint!(points[:, i], color=:green)
+  rplt = spy(flipdim(pred_dist, 1), colorbar=false, title="Pred. dist.")
+  BetaML_NN.plotpoint!(pred_cell_point, color=:purple)
+  BetaML_NN.plotpoint!(points[:, i], color=:green)
+  BetaML_NN.plotpoint!(pred_point, color=:red)
+
+  plot(layout=(1, 2), lplt, rplt, aspect_ratio=1)
+  gui()
+end
 
 function train(file, model, events, points)
-    t_save = throttle(() -> BetaML_NN.save(file, model, 1), 10)
-
-    distcb() = (t_save(); (() -> begin
-        i = rand(1:size(events, 3))
-        pred_dist = model(events[:, :, [i]])[1] |> data |> x -> squeeze(x, 3)
-        cell_point = cellpoint(pointcell(points[:, i]))
-
-        println("Event $i, Loss = ", loss(model)[1](events[:, :, [i]], points[:, [i]]) #=
-                                  =# |> data)
-
-        lplt = spy(flipdim(events[:, :, i], 1), colorbar=false, title="Event")
-        BetaML_NN.plotpoint!(cell_point, color=:blue)
-        rplt = spy(flipdim(pred_dist, 1), colorbar=false, title="Pred. dist.")
-        BetaML_NN.plotpoint!(cell_point, color=:blue)
-
-        plot(layout=(1, 2), lplt, rplt, aspect_ratio=1)
-        gui()
-    end) |> f -> throttle(f, 2) |> f -> f())
-
-    regcb() = (t_save(); (() -> begin
-        i = rand(1:size(events, 3))
-        pred = model(events[:, :, [i]]) .|> data
-        cell_point = cellpoint(pointcell(points[:, i]))
-        pred_dist = pred[1] |> x -> squeeze(x, 3)
-        pred_cell = ind2sub(pred_dist, indmax(pred_dist)) |> collect
-        pred_point = pointcell(pred_cell) + pred[2][pred_cell..., :, 1]
-
-        println("Event $i, Loss = ", loss(model)[2](events[:, :, [i]], points[:, [i]]) #=
-                                  =# |> data)
-
-        lplt = spy(flipdim(events[:, :, i], 1), colorbar=false, title="Event")
-        BetaML_NN.plotpoint!(cell_point, color=:blue)
-        BetaML_NN.plotpoint!(points[:, i], color=:green)
-        rplt = spy(flipdim(pred_dist, 1), colorbar=false, title="Pred. dist.")
-        BetaML_NN.plotpoint!(cell_point, color=:blue)
-        BetaML_NN.plotpoint!(pred_cell, color=:purple)
-        BetaML_NN.plotpoint!(points[:, i], color=:green)
-        BetaML_NN.plotpoint!(pred_point, color=:red)
-
-        plot(layout=(1, 2), lplt, rplt, aspect_ratio=1)
-        gui()
-    end) |> f -> throttle(f, 2) |> f -> f())
-
     batches = zip(batch(events, BATCHSIZE), batch(points, BATCHSIZE)) |> collect
+    numbatches = length(batches)
+
+    batchnum = Ref(0)
+    update_info() = batchnum.x += 1
+    t_save = throttle(10) do
+        BetaML_NN.save(file, model)
+    end
+    t_dist_relay_info = throttle(2) do
+        dist_relay_info(batchnum.x/numbatches, model, events, points)
+    end
+    t_reg_relay_info = throttle(2) do
+        reg_relay_info(batchnum.x/numbatches, model, events, points)
+    end
 
     println("Training dist. epoch...")
     shuffle!(batches)
-    Flux.Optimise.train!(loss(model)[1], batches, optimizer(model),
-                         cb=distcb)
-   
+    try
+        Flux.Optimise.train!(loss(model)[1], batches, optimizer(model),
+                             cb=[update_info, t_save, t_dist_relay_info])
+    catch ex
+        ex isa InterruptException ? interrupt() : rethrow()
+    finally
+        BetaML_NN.save(file, model)
+    end
+  
+    batchnum.x = 0
     println("Training reg. epoch...")
     shuffle!(batches)
-    Flux.Optimise.train!(loss(model)[2], batches, optimizer(model),
-                         cb=throttle(regcb, 2))
-    
-    BetaML_NN.save(file, model, 1)
+    try
+        Flux.Optimise.train!(loss(model)[2], batches, optimizer(model),
+                             cb=[update_info, t_save, t_reg_relay_info])
+    catch ex
+        ex isa InterruptException ? interrupt() : rethrow()
+    finally
+        BetaML_NN.save(file, model)
+    end
 end
 
 end # module OtherNN
