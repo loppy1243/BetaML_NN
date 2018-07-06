@@ -35,16 +35,16 @@ distloss2(ϵ) = model -> (events, points) -> begin
 end
 
 regloss(model) = (events, points) -> begin
-    preds = model(events)
-    cells = mapslices(pointcell, points, 1)
+    pred_dists, pred_rel_points = model(events)
+    bare_pred_dists = data(pred_dists)
 
     sum(1:size(cells, 2)) do i
         point = points[:, i]
-        pred_dist = preds[1][:, :, i]
+        pred_dist = bare_pred_dists[:, :, i]
         pred_cell = ind2sub(pred_dist, indmax(pred_dist)) |> collect
-        pred_rel_point = preds[2][pred_cell..., :, i]
+        pred_rel_point = pred_rel_points[pred_cell..., :, i]
 
-        norm(point - (pred_rel_point + cellpoint(pred_cell)))
+        (point - (pred_rel_point + cellpoint(pred_cell))).^2 |> sum
     end
 end
 
@@ -74,6 +74,7 @@ function other(activ; ϵ=1, λ=1, η=0.1, N=50)
     model(x, ::Type{Val{:point}}) = x |> Chain(reguarize, pointchain)
 
     Model(model, (distloss(ϵ, λ), regloss), x -> SGD(x, η),
+          [params(distchain); params(pointchain)],
           :activ => last(activ), :opt => "SGD", :ϵ => ϵ, :λ => λ, :η => η, :N => N)
 end
 
@@ -93,7 +94,7 @@ function dist_relay_info(batchnum, model, events, points)
     i = rand(1:size(events, 3))
     pred_dist = model(events[:, :, [i]])[1] |> data |> x -> squeeze(x, 3)
 
-    println("$batchnum:, Event $i, Loss = ",
+    println("$(round(batchnum, 2)):, Event $i, Loss = ",
             loss(model)[1](events[:, :, [i]], points[:, [i]]) |> data)
 
     lplt = spy(flipdim(events[:, :, i], 1), colorbar=false, title="Event")
@@ -114,7 +115,7 @@ function reg_relay_info(batchnum, model, events, points)
   pred_cell_point = cellpoint(pred_cell)
   pred_point = pred_cell_point + pred[2][pred_cell..., :, 1]
 
-  println("$batchnum: Event $i, Loss = ",
+  println("$(round(batchnum, 2)): Event $i, Loss = ",
           loss(model)[2](events[:, :, [i]], points[:, [i]]) |> data)
 
   lplt = spy(flipdim(events[:, :, i], 1), colorbar=false, title="Event")
