@@ -17,13 +17,14 @@ const XYMIN = -[48.0, 48.0]/2 # = [-24, -24]
 const XYMAX = [48.0, 48.0]/2 # = [24, 24]
 const XYOFF = -[48.0, 48.0]/2 # = [-24, -24]
 
-function read(file)
-    data = readdlm(file, Float32, dims=(ROWS, COLUMNS))
+read(file) = read(Float64, file)
+read(file, range) = read(Float64, file, range)
+function read(T::Type, file)
+    data = readdlm(file, T, dims=(ROWS, COLUMNS))
 
     (reshape(data[:, 1:end-6], :, GRIDSIZE...), data[:, end-5:end])
 end
-
-function read(file, range)
+function read(T::Type, file, range)
     @assert start(range) > 0
     buf = IOBuffer()
     open(file) do stream
@@ -38,7 +39,7 @@ function read(file, range)
     end
 
     seekstart(buf)
-    data = readdlm(buf, Float32, dims=(length(range), COLUMNS))
+    data = readdlm(buf, T, dims=(length(range), COLUMNS))
 
     (reshape(data[:, 1:end-6], :, GRIDSIZE...), data[:, end-5:end])
 end
