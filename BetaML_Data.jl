@@ -11,10 +11,11 @@ const COLUMNS = 16*16 + 6
 const ROWS = EVENTS
 const GRIDSIZE = [16, 16]
 const CELLS = prod(GRIDSIZE)
+const MAX_E = 3060.0
 
-const XYMIN = -[48, 48]/2 # = [-24, -24]
-const XYMAX = [48, 48]/2 # = [24, 24]
-const XYOFF = -[48, 48]/2 # = [-24, -24]
+const XYMIN = -[48.0, 48.0]/2 # = [-24, -24]
+const XYMAX = [48.0, 48.0]/2 # = [24, 24]
+const XYOFF = -[48.0, 48.0]/2 # = [-24, -24]
 
 function read(file)
     data = readdlm(file, Float32, dims=(ROWS, COLUMNS))
