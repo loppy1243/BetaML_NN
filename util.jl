@@ -38,5 +38,5 @@ macro modelfunc(funcdecl)
 end
 
 macro try_defconst(expr)
-    isdefined(expr.args[1].args[1]) ? nothing : :(const $(esc(expr.args[1])) = $expr)
+    isdefined(expr.args[1]) ? nothing : Expr(:const, esc(expr))
 end
