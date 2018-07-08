@@ -28,7 +28,7 @@ function plotpoint!(plt, p; kws...)
     xmin, xmax = xlims(plt)
     ymin, ymax = ylims(plt)
 
-    xy = @. (p - XYOFF)/(XYMAX-XYMIN)*[xmax-xmin, ymin-ymax] + [xmin, ymax]
+    xy = @. (p - XYOFF)/(XYMAX-XYMIN)*[xmax-xmin, ymax-ymin] + [xmin, ymin]
 
     scatter!(plt, [xy[1]], [xy[2]], legend=false; kws...)
 end

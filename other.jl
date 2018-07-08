@@ -65,7 +65,7 @@ function other(activ; ϵ=1, λ=1, η=0.1, N=50)
                       x -> reshape(x, CELLS, :),
                       softmax,
                       x -> reshape(x, GRIDSIZE..., :))
-    pointchain = Chain(ConvUnbiased((5, 5), 1=>N, first(activ), pad=(2, 2), init=zeros),
+    pointchain = Chain(Conv((5, 5), 1=>N, first(activ), pad=(2, 2), init=zeros),
                        ConvUnbiased((5, 5), N=>2, pad=(2, 2), init=zeros))
 
     regularize(x) = reshape(x, GRIDSIZE..., 1, :)
@@ -88,7 +88,7 @@ function batch(xs, sz)
     ret
 end
 
-model1() = other(relu=>"relu"; ϵ=0.1, λ=1, η=0.1, N=50)
+model1() = other(relu=>"relu"; ϵ=0.1, λ=1, η=0.01, N=50)
 
 function dist_relay_info(batchnum, model, events, points)
     i = rand(1:size(events, 3))
@@ -96,6 +96,8 @@ function dist_relay_info(batchnum, model, events, points)
 
     println("$(round(batchnum, 2)):, Event $i, Loss = ",
             loss(model)[1](events[:, :, [i]], points[:, [i]]) |> data)
+    println("Conv: ", params(model)[1])
+    println("Bias: ", params(model)[2])
 
     lplt = spy(flipdim(events[:, :, i], 1), colorbar=false, title="Event")
     BetaML_NN.plotpoint!(points[:, i], color=:green)
