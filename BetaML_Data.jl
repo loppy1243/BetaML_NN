@@ -4,7 +4,7 @@ using Base.Iterators: drop, take
 using IterTools: takenth, chain
 using Lazy: @>
 
-export EVENTS, COLUMNS, ROWS, GRIDSIZE, CELLS, XYMIN, XYMAX, XYOFF
+export EVENTS, COLUMNS, ROWS, GRIDSIZE, CELLS, MAX_E, XYMIN, XYMAX, XYOFF
 
 const EVENTS = 10^6
 const COLUMNS = 16*16 + 6

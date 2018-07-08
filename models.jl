@@ -34,7 +34,7 @@ function Model(model, lossgen::Function, opt, params, pairs...)
     Model{typeof(model), typeof(loss), typeof(opt)}(model, loss, opt, params, pairs...)
 end
 
-(m::Model{M, L, O})(x) where {M, L<:Function, O<:Function} = m.model(x)
+(m::Model{M, L, O})(xs...) where {M, L<:Function, O<:Function} = m.model(xs...)
 
 loss(m::Model) = m.loss
 loss(m::Model, x, y) = m.loss(x, y)

@@ -14,7 +14,7 @@ include("other.jl")
 
 function main(events, points)
     OtherNN.train("othernn.bson", OtherNN.model1(), permutedims(events, [2, 3, 1]),
-                  permutedims(points, [2, 1]))
+                  permutedims(points, [2, 1]), load=false)
 end
 
 end # module DenseNet

@@ -38,7 +38,7 @@ regloss(model) = (events, points) -> begin
     pred_dists, pred_rel_points = model(events)
     bare_pred_dists = data(pred_dists)
 
-    sum(1:size(cells, 2)) do i
+    sum(1:size(points, 2)) do i
         point = points[:, i]
         pred_dist = bare_pred_dists[:, :, i]
         pred_cell = ind2sub(pred_dist, indmax(pred_dist)) |> collect
@@ -61,17 +61,17 @@ ConvUnbiased(dims::NTuple{N}, chs, activ=identity; stride=map(_->1, dims),
 (c::ConvUnbiased)(x) = c.activ.(NNlib.conv(x, c.weights, stride=c.stride, pad=c.pad))
 
 function other(activ; ϵ=1, λ=1, η=0.1, N=50)
-    distchain = Chain(Conv((3, 3), 1=>1, pad=(1, 1)),
+    distchain = Chain(Conv((3, 3), 1=>1, pad=(1, 1), init=zeros),
                       x -> reshape(x, CELLS, :),
                       softmax,
                       x -> reshape(x, GRIDSIZE..., :))
     pointchain = Chain(Conv((5, 5), 1=>N, first(activ), pad=(2, 2), init=zeros),
                        ConvUnbiased((5, 5), N=>2, pad=(2, 2), init=zeros))
 
-    regularize(x) = reshape(x, GRIDSIZE..., 1, :)
+    regularize(x) = reshape(x/MAX_E, GRIDSIZE..., 1, :)
     model(x) = x |> Chain(regularize, y -> (distchain(y), pointchain(y)))
     model(x, ::Type{Val{:dist}}) = x |> Chain(regularize, distchain)
-    model(x, ::Type{Val{:point}}) = x |> Chain(reguarize, pointchain)
+    model(x, ::Type{Val{:point}}) = x |> Chain(regularize, pointchain)
 
     Model(model, (distloss(ϵ, λ), regloss), x -> SGD(x, η),
           [params(distchain); params(pointchain)],
@@ -88,16 +88,14 @@ function batch(xs, sz)
     ret
 end
 
-model1() = other(relu=>"relu"; ϵ=0.1, λ=1, η=0.01, N=50)
+model1() = other(relu=>"relu"; ϵ=0.1, λ=1, η=0.1, N=50)
 
-function dist_relay_info(batchnum, model, events, points)
+function dist_relay_info(batchnum, numbatches, model, events, points)
     i = rand(1:size(events, 3))
-    pred_dist = model(events[:, :, [i]])[1] |> data |> x -> squeeze(x, 3)
+    pred_dist = model(events[:, :, [i]], Val{:dist}) |> data |> x -> squeeze(x, 3)
 
-    println("$(round(batchnum, 2)):, Event $i, Loss = ",
+    println("$batchnum/$numbatches:, Event $i, Loss = ",
             loss(model)[1](events[:, :, [i]], points[:, [i]]) |> data)
-    println("Conv: ", params(model)[1])
-    println("Bias: ", params(model)[2])
 
     lplt = spy(flipdim(events[:, :, i], 1), colorbar=false, title="Event")
     BetaML_NN.plotpoint!(points[:, i], color=:green)
@@ -108,7 +106,7 @@ function dist_relay_info(batchnum, model, events, points)
     gui()
 end
 
-function reg_relay_info(batchnum, model, events, points)
+function reg_relay_info(batchnum, numbatches, model, events, points)
   i = rand(1:size(events, 3))
   pred = model(events[:, :, [i]]) .|> data
   cell_point = cellpoint(pointcell(points[:, i]))
@@ -117,7 +115,7 @@ function reg_relay_info(batchnum, model, events, points)
   pred_cell_point = cellpoint(pred_cell)
   pred_point = pred_cell_point + pred[2][pred_cell..., :, 1]
 
-  println("$(round(batchnum, 2)): Event $i, Loss = ",
+  println("$batchnum/$numbatches: Event $i, Loss = ",
           loss(model)[2](events[:, :, [i]], points[:, [i]]) |> data)
 
   lplt = spy(flipdim(events[:, :, i], 1), colorbar=false, title="Event")
@@ -131,43 +129,51 @@ function reg_relay_info(batchnum, model, events, points)
   gui()
 end
 
-function train(file, model, events, points)
+macro try_and_save(pair, expr)
+    model = esc(pair.args[2])
+    file = esc(pair.args[3])
+    quote
+        try
+            $(esc(expr))
+        catch ex
+            ex isa InterruptException ? interrupt() : rethrow()
+        finally
+            BetaML_NN.save($file, $model)
+        end
+    end
+end
+
+function train(file, model, events, points; load=true, train_dist=true, train_reg=true)
+    model = isfile(file) && load ? BetaML_NN.load(file) : model
+
     batches = zip(batch(events, BATCHSIZE), batch(points, BATCHSIZE)) |> collect
     numbatches = length(batches)
 
     batchnum = Ref(0)
     update_info() = batchnum.x += 1
-    t_save = throttle(10) do
+    t_save = throttle(20) do
         BetaML_NN.save(file, model)
     end
-    t_dist_relay_info = throttle(2) do
-        dist_relay_info(batchnum.x/numbatches, model, events, points)
+    t_dist_relay_info = throttle(3) do
+        dist_relay_info(batchnum.x, numbatches, model, events, points)
     end
-    t_reg_relay_info = throttle(2) do
-        reg_relay_info(batchnum.x/numbatches, model, events, points)
+    t_reg_relay_info = throttle(3) do
+        reg_relay_info(batchnum.x, numbatches, model, events, points)
     end
 
-    println("Training dist. epoch...")
-    shuffle!(batches)
-    try
+    train_dist && @try_and_save model=>file begin
+        println("Training dist. epoch...")
+        shuffle!(batches)
         Flux.Optimise.train!(loss(model)[1], batches, optimizer(model),
                              cb=[update_info, t_save, t_dist_relay_info])
-    catch ex
-        ex isa InterruptException ? interrupt() : rethrow()
-    finally
-        BetaML_NN.save(file, model)
     end
   
-    batchnum.x = 0
-    println("Training reg. epoch...")
-    shuffle!(batches)
-    try
+    train_reg && @try_and_save model=>file begin
+        batchnum.x = 0
+        println("Training reg. epoch...")
+        shuffle!(batches)
         Flux.Optimise.train!(loss(model)[2], batches, optimizer(model),
                              cb=[update_info, t_save, t_reg_relay_info])
-    catch ex
-        ex isa InterruptException ? interrupt() : rethrow()
-    finally
-        BetaML_NN.save(file, model)
     end
 end
 
