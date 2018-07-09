@@ -1,3 +1,4 @@
+using Plots
 using StatsBase: mode
 
 macro modelfunc(funcdecl)
@@ -32,7 +33,7 @@ end
     println(" Done.")
   
     print("Computing distances...")
-    dists = mapslices(norm, preds - points, 1)
+    dists = squeeze(mapslices(norm, preds - points, 1), 1)
     println(" Done.")
 
     print("Computing statistics...") 

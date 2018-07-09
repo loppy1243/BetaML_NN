@@ -49,5 +49,11 @@ fcat(itr) = (xs...) -> map(f -> f(xs...), collect(itr))
 
 xrel(f) = xrel(Plots.current(), f)
 yrel(f) = yrel(Plots.current(), f)
-xrel(plt, f) = Plots.xmin(plt) + f*(Plots.xmax(plt)-Plots.xmin(plt))
-yrel(plt, f) = Plots.ymin(plt) + f*(Plots.ymin(plt)-Plots.ymax(plt))
+function xrel(plt, f)
+    xmin, xmax = Plots.xlims(plt)
+    xmin + f*(xmax-xmin)
+end
+function yrel(plt, f)
+    ymin, ymax = Plots.ylims(plt)
+    ymin + f*(ymax-ymin)
+end
