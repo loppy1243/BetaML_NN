@@ -83,6 +83,32 @@ ConvUnbiased(dims::NTuple{N}, chs, activ=identity; stride=map(_->1, dims),
         ::Type{Val{:dist}}  -> regularize(x) |> distchain
         ::Type{Val{:point}} -> regularize(x) |> pointchain
     end
+
+#    function pointpred(x, dists)
+#        ret = Array{eltype(x)}(2, size(x, 3))
+#        for i in indices(dists, 3)
+#            dist = pred_dists[:, :, i]
+#            cell = ind2sub(dist, indmax(dist))
+#            cell_point = cellpoint(cell)
+#            rel_point = rel_point_dists[pred_cell..., :, i]
+#            ret[:, i] .= cell_point + rel_point
+#        end
+#
+#        ret
+#    end
+#
+#    @model(x) do
+#        () -> begin
+#            y = regularize(x)
+#            dist = distchain(y)
+#            (dist, pointpred(y, data(dist)))
+#        end
+#        ::Type{Val{:dist}} -> regularize(x) |> distchain
+#        ::Type{Val{:point}} -> begin
+#            y = regularize(x)
+#            pointpred(y, distchain(y) |> data)
+#        end
+#    end
 end
 
 @model function other2(activ=>activ_name, ϵ, η, N)
