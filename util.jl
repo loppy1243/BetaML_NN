@@ -1,4 +1,6 @@
-export @modelfunc, @λ, fcat
+export @modelfunc, @λ, fcat, xrel, yrel
+
+import Plots
 
 julienne(A, dims) = mapslices(x -> [x], A, dims)
 julienne(f, A, dims) = mapslices(x -> [f(x)], A, dims)
@@ -60,3 +62,8 @@ end
 
 fcat(f1, fs...) = (xs...) -> map(f -> f(xs...), (f1, fs...))
 fcat(itr) = (xs...) -> map(f -> f(xs...), collect(itr))
+
+xrel(f) = xrel(Plots.current(), f)
+yrel(f) = yrel(Plots.current(), f)
+xrel(plt, f) = Plots.xmin(plt) + f*(Plots.xmax(plt)-Plots.xmin(plt))
+yrel(plt, f) = Plots.ymin(plt) + f*(Plots.ymin(plt)-Plots.ymax(plt))
