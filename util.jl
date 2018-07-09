@@ -1,25 +1,9 @@
-export @modelfunc, @λ, fcat, xrel, yrel
+export @λ, fcat, xrel, yrel
 
 import Plots
 
 julienne(A, dims) = mapslices(x -> [x], A, dims)
 julienne(f, A, dims) = mapslices(x -> [f(x)], A, dims)
-
-macro modelfunc(funcdecl)
-    @assert funcdecl.head == :function || funcdecl.head == :(=) #=
-         =# && funcdecl.args[1].head == :call
-
-    fname = esc(funcdecl.args[1].args[1])
-
-    quote
-        $fname(modelfile::AbstractString, events, cells; model_name="") =
-            $fname(BetaML_NN.load(modelfile)[:model], events, cells, model_name=model_name)
-        $fname(models, events, cells; model_names=fill("", length(model_pairs))) =
-            cells((m, n) -> $fname(m, events, cells, model_name=n), models, model_names)
-
-        $(esc(funcdecl))
-    end
-end
 
 macro try_defconst(expr)
     isdefined(expr.args[1]) ? nothing : Expr(:const, esc(expr))
