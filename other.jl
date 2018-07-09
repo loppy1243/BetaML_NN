@@ -9,7 +9,8 @@ using ..BetaML_NN
 
 using Flux: throttle, Tracker.data
 
-distloss(ϵ, λ) = model -> (events, points) -> begin
+distloss(ϵ, λ) = (model, events, points) -> distloss(model, events, points, ϵ, λ)
+function distloss(model, events, points, ϵ, λ)
     pred_dists = model(events, Val{:dist})
     cells = mapslices(pointcell, points, 1)
 
@@ -21,7 +22,8 @@ distloss(ϵ, λ) = model -> (events, points) -> begin
     end
 end
 
-distloss2(ϵ) = model -> (events, points) -> begin
+distloss2(ϵ) = (model, events, points) -> distloss2(model, events, points, ϵ)
+function distloss2(model, events, points, ϵ)
     pred_dists = model(events, Val{:dist})
     cells = mapslice(pointcell, points, 1)
 
@@ -60,23 +62,46 @@ ConvUnbiased(dims::NTuple{N}, chs, activ=identity; stride=map(_->1, dims),
     ConvUnbiased(activ, param(init(dims..., chs...)), stride, pad)
 (c::ConvUnbiased)(x) = c.activ.(NNlib.conv(x, c.weights, stride=c.stride, pad=c.pad))
 
-function other(activ; ϵ=1, λ=1, η=0.1, N=50)
+@model function other(activ=>activ_name, ϵ, λ, η, N)
+    regularize(x) = reshape(x/MAX_E, GRIDSIZE..., 1, :)
     distchain = Chain(Conv((3, 3), 1=>1, pad=(1, 1), init=zeros),
                       x -> reshape(x, CELLS, :),
                       softmax,
                       x -> reshape(x, GRIDSIZE..., :))
-    pointchain = Chain(Conv((5, 5), 1=>N, first(activ), pad=(2, 2), init=zeros),
+    pointchain = Chain(Conv((5, 5), 1=>N, activ, pad=(2, 2), init=zeros),
                        ConvUnbiased((5, 5), N=>2, pad=(2, 2), init=zeros))
 
-    regularize(x) = reshape(x/MAX_E, GRIDSIZE..., 1, :)
-    model(x) = x |> Chain(regularize, y -> (distchain(y), pointchain(y)))
-    model(x, ::Type{Val{:dist}}) = x |> Chain(regularize, distchain)
-    model(x, ::Type{Val{:point}}) = x |> Chain(regularize, pointchain)
-
-    Model(model, (distloss(ϵ, λ), regloss), x -> SGD(x, η),
-          [params(distchain); params(pointchain)],
-          :activ => last(activ), :opt => "SGD", :ϵ => ϵ, :λ => λ, :η => η, :N => N)
+    @params [params(distchain); params(pointchain)]
+    @opt x -> SGD(x, η)
+    @loss(model, x, y) do
+        ()                 -> fcat(distloss(ϵ, λ), regloss)(model, x, y)
+        ::Type{Val{:dist}} -> distloss(model, x, y, ϵ, λ)
+        ::Type{Val{:reg}}  -> regloss(model, x, y)
+    end
+    @model(x) do
+        ()                  -> regularize(x) |> fcat(distchain, pointchain)
+        ::Type{Val{:dist}}  -> regularize(x) |> distchain
+        ::Type{Val{:point}} -> regularize(x) |> pointchain
+    end
 end
+
+#function other(activ; ϵ=1, λ=1, η=0.1, N=50)
+#    distchain = Chain(Conv((3, 3), 1=>1, pad=(1, 1), init=zeros),
+#                      x -> reshape(x, CELLS, :),
+#                      softmax,
+#                      x -> reshape(x, GRIDSIZE..., :))
+#    pointchain = Chain(Conv((5, 5), 1=>N, first(activ), pad=(2, 2), init=zeros),
+#                       ConvUnbiased((5, 5), N=>2, pad=(2, 2), init=zeros))
+#
+#    regularize(x) = reshape(x/MAX_E, GRIDSIZE..., 1, :)
+#    model(x) = x |> Chain(regularize, y -> (distchain(y), pointchain(y)))
+#    model(x, ::Type{Val{:dist}}) = x |> Chain(regularize, distchain)
+#    model(x, ::Type{Val{:point}}) = x |> Chain(regularize, pointchain)
+#
+#    Model(model, (distloss(ϵ, λ), regloss), x -> SGD(x, η),
+#          [params(distchain); params(pointchain)],
+#          :activ => last(activ), :opt => "SGD", :ϵ => ϵ, :λ => λ, :η => η, :N => N)
+#end
 
 function batch(xs, sz)
     lastdim = ndims(xs)
@@ -88,7 +113,7 @@ function batch(xs, sz)
     ret
 end
 
-model1() = other(relu=>"relu"; ϵ=0.1, λ=1, η=0.1, N=50)
+model1() = other(relu=>"relu", 0.1, 1, 0.1, 50)
 
 function dist_relay_info(batchnum, numbatches, model, events, points)
     i = rand(1:size(events, 3))
@@ -164,15 +189,15 @@ function train(file, model, events, points; load=true, train_dist=true, train_re
     train_dist && @try_and_save model=>file begin
         println("Training dist. epoch...")
         shuffle!(batches)
-        Flux.Optimise.train!(loss(model)[1], batches, optimizer(model),
+        Flux.Optimise.train!((x, y) -> loss(model, x, y, Val{:dist}), batches, optimizer(model),
                              cb=[update_info, t_save, t_dist_relay_info])
     end
-  
+
     train_reg && @try_and_save model=>file begin
         batchnum.x = 0
         println("Training reg. epoch...")
         shuffle!(batches)
-        Flux.Optimise.train!(loss(model)[2], batches, optimizer(model),
+        Flux.Optimise.train!((x, y) -> loss(model, x, y, Val{:point}), batches, optimizer(model),
                              cb=[update_info, t_save, t_reg_relay_info])
     end
 end
