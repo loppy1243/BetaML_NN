@@ -7,7 +7,7 @@ using Plots
 using BetaML_Data
 using ..BetaML_NN
 
-using Flux: throttle, Tracker.data
+using Flux: throttle, Tracker.data, Tracker.grad
 
 distloss(ϵ, λ) = (model, events, points) -> distloss(model, events, points, ϵ, λ)
 function distloss(model, events, points, ϵ, λ)
@@ -39,7 +39,7 @@ end
 function regloss(model, events, points)
     pred_points = model(events, Val{:point})
 
-    (points - pred_points).^2 |> sum
+    ((points - pred_points).^2 |> sum)*1e100
 end
 
 struct ConvUnbiased{N, A<:AbstractArray{Float64, 4}, F<:Function}
@@ -115,13 +115,10 @@ function dist_relay_info(batchnum, numbatches, model, events, points)
     i = rand(1:numevents)
     pred_dist = model(events[:, :, [i]], Val{:dist}) |> data
 
-    println("$(lpad(batchnum, ndigits(numbatches), 0))/$numbatches:,",
-            "Event $(lpad(i, ndigits(numevents), 0)) Loss = ",
-            round(loss(model, events[:, :, [i]], points[:, [i]], Val{:dist}) |> data,
-                  3))
-    println(params(model)[1])
-    println(params(model)[2])
-    println()
+    lossval = loss(model, events[:, :, [i]], points[:, [i]], Val{:dist})
+    println("$(lpad(batchnum, ndigits(numbatches), 0))/$numbatches:, ",
+            "Event $(lpad(i, ndigits(numevents), 0)) Loss = $(round(data(lossval), 3)), ",
+            "Grad = ", grad(lossval), 3)
 
     lplt = spy(events[:, :, i], colorbar=false, title="Event")
     BetaML_NN.plotpoint!(points[:, i], color=:green)
@@ -142,7 +139,7 @@ function reg_relay_info(batchnum, numbatches, model, events, points)
     lossval = loss(model, events[:, :, [i]], points[:, [i]], Val{:dist})
     println("$(lpad(batchnum, ndigits(numbatches), 0))/$numbatches:, ",
             "Event $(lpad(i, ndigits(numevents), 0)) Loss = $(round(data(lossval), 3)), ",
-            "Grad = ", lossval.grad)
+            "Grad = ", grad(lossval))
 #    map(println, params(model)[3:end])
 
     lplt = spy(events[:, :, i], colorbar=false, title="Event")
