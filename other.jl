@@ -39,7 +39,7 @@ end
 function regloss(model, events, points)
     pred_points = model(events, Val{:point})
 
-    ((points - pred_points).^2 |> sum)*1e100
+    (points - pred_points).^2 |> sum
 end
 
 struct ConvUnbiased{N, A<:AbstractArray{Float64, 4}, F<:Function}
