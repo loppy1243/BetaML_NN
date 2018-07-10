@@ -37,17 +37,9 @@ function distloss2(model, events, points, ϵ)
 end
 
 function regloss(model, events, points)
-    pred_dists, pred_rel_points = model(events)
-    bare_pred_dists = data(pred_dists)
+    pred_points = model(events, Val{:point})
 
-    sum(1:size(points, 2)) do i
-        point = points[:, i]
-        pred_dist = bare_pred_dists[:, :, i]
-        pred_cell = ind2sub(pred_dist, indmax(pred_dist)) |> collect
-        pred_rel_point = pred_rel_points[pred_cell..., :, i]
-
-        (point - (pred_rel_point + cellpoint(pred_cell))).^2 |> sum
-    end
+    (points - pred_points).^2 |> sum
 end
 
 struct ConvUnbiased{N, A<:AbstractArray{Float64, 4}, F<:Function}
@@ -62,75 +54,49 @@ ConvUnbiased(dims::NTuple{N}, chs, activ=identity; stride=map(_->1, dims),
     ConvUnbiased(activ, param(init(dims..., chs...)), stride, pad)
 (c::ConvUnbiased)(x) = c.activ.(NNlib.conv(x, c.weights, stride=c.stride, pad=c.pad))
 
-@model function other(activ=>activ_name, ϵ, λ, η, N)
+@model function other(activ=>activ_name, ϵ, η, N)
     regularize(x) = reshape(x/MAX_E, GRIDSIZE..., 1, :)
     distchain = Chain(Conv((3, 3), 1=>1, pad=(1, 1), init=zeros),
                       x -> reshape(x, CELLS, :),
                       softmax,
                       x -> reshape(x, GRIDSIZE..., :))
-    pointchain = Chain(Conv((5, 5), 1=>N, activ, pad=(2, 2), init=zeros),
-                       ConvUnbiased((5, 5), N=>2, pad=(2, 2), init=zeros))
+    pointchain = Chain(Conv((5, 5), 1=>N, activ, pad=(2, 2)),
+                       ConvUnbiased((5, 5), N=>2, pad=(2, 2)))
 
-    @params [params(distchain); params(pointchain)]
-    @opt x -> SGD(x, η)
-    @loss(model, x, y) do
-        ()                  -> fcat(distloss(ϵ, λ), regloss)(model, x, y)
-        ::Type{Val{:dist}}  -> distloss(model, x, y, ϵ, λ)
-        ::Type{Val{:point}} -> regloss(model, x, y)
-    end
-    @model(x) do
-        ()                  -> regularize(x) |> fcat(distchain, pointchain)
-        ::Type{Val{:dist}}  -> regularize(x) |> distchain
-        ::Type{Val{:point}} -> regularize(x) |> pointchain
-    end
-
-#    function pointpred(x, dists)
-#        ret = Array{eltype(x)}(2, size(x, 3))
-#        for i in indices(dists, 3)
-#            dist = pred_dists[:, :, i]
-#            cell = ind2sub(dist, indmax(dist))
-#            cell_point = cellpoint(cell)
-#            rel_point = rel_point_dists[pred_cell..., :, i]
-#            ret[:, i] .= cell_point + rel_point
-#        end
-#
-#        ret
-#    end
-#
-#    @model(x) do
-#        () -> begin
-#            y = regularize(x)
-#            dist = distchain(y)
-#            (dist, pointpred(y, data(dist)))
-#        end
-#        ::Type{Val{:dist}} -> regularize(x) |> distchain
-#        ::Type{Val{:point}} -> begin
-#            y = regularize(x)
-#            pointpred(y, distchain(y) |> data)
-#        end
-#    end
-end
-
-@model function other2(activ=>activ_name, ϵ, η, N)
-    regularize(x) = reshape(x/MAX_E, GRIDSIZE..., 1, :)
-    distchain = Chain(Conv((3, 3), 1=>1, pad=(1, 1), init=zeros),
-                      x -> reshape(x, CELLS, :),
-                      softmax,
-                      x -> reshape(x, GRIDSIZE..., :))
-    pointchain = Chain(Conv((5, 5), 1=>N, activ, pad=(2, 2), init=zeros),
-                       ConvUnbiased((5, 5), N=>2, pad=(2, 2), init=zeros))
-
-    @params [params(distchain); params(pointchain)]
+    @params(params(distchain), params(pointchain))
     @opt x -> SGD(x, η)
     @loss(model, x, y) do
         ()                  -> fcat(distloss2(ϵ), regloss)(model, x, y)
         ::Type{Val{:dist}}  -> distloss2(model, x, y, ϵ)
         ::Type{Val{:point}} -> regloss(model, x, y)
     end
+
+    function pointpred(x, dists)
+        rel_point_dists = pointchain(x)
+        ret = Array{eltype(dists)}(2, size(x, 4))
+        dists = data(dists)
+        for i in indices(dists, 3)
+            dist = dists[:, :, i]
+            cell = ind2sub(dist, indmax(dist))
+            cell_point = cellpoint(cell)
+            rel_point = rel_point_dists[cell..., :, i]
+            ret[:, i] .= cell_point + rel_point.*(XYMAX-XYMIN)/5
+        end
+
+        Flux.Tracker.collect(ret)
+    end
+
     @model(x) do
-        ()                  -> regularize(x) |> fcat(distchain, pointchain)
-        ::Type{Val{:dist}}  -> regularize(x) |> distchain
-        ::Type{Val{:point}} -> regularize(x) |> pointchain
+        () -> begin
+            y = regularize(x)
+            dist = distchain(y)
+            (dist, pointpred(y, dist))
+        end
+        ::Type{Val{:dist}} -> regularize(x) |> distchain
+        ::Type{Val{:point}} -> begin
+            y = regularize(x)
+            pointpred(y, distchain(y))
+        end
     end
 end
 
@@ -144,19 +110,22 @@ function batch(xs, sz)
     ret
 end
 
-model1() = other(relu=>"relu", 0.1, 1, 0.1, 50)
-model2() = other2(relu=>"relu", 0.1, 0.1, 50)
-
 function dist_relay_info(batchnum, numbatches, model, events, points)
-    i = rand(1:size(events, 3))
-    pred_dist = model(events[:, :, [i]], Val{:dist}) |> data |> x -> squeeze(x, 3)
+    numevents = size(events, 3)
+    i = rand(1:numevents)
+    pred_dist = model(events[:, :, [i]], Val{:dist}) |> data
 
-    println("$batchnum/$numbatches:, Event $i, Loss = ",
-            loss(model, events[:, :, [i]], points[:, [i]], Val{:dist}) |> data)
+    println("$(lpad(batchnum, ndigits(numbatches), 0))/$numbatches:,",
+            "Event $(lpad(i, ndigits(numevents), 0)) Loss = ",
+            round(loss(model, events[:, :, [i]], points[:, [i]], Val{:dist}) |> data,
+                  3))
+    println(params(model)[1])
+    println(params(model)[2])
+    println()
 
-    lplt = spy(flipdim(events[:, :, i], 1), colorbar=false, title="Event")
+    lplt = spy(events[:, :, i], colorbar=false, title="Event")
     BetaML_NN.plotpoint!(points[:, i], color=:green)
-    rplt = spy(flipdim(pred_dist, 1), colorbar=false, title="Pred. dist.")
+    rplt = spy(pred_dist[:, :, 1], colorbar=false, title="Pred. dist.")
     BetaML_NN.plotpoint!(points[:, i], color=:green)
 
     plot(layout=(1, 2), lplt, rplt, aspect_ratio=1)
@@ -164,26 +133,26 @@ function dist_relay_info(batchnum, numbatches, model, events, points)
 end
 
 function reg_relay_info(batchnum, numbatches, model, events, points)
-  i = rand(1:size(events, 3))
-  pred = model(events[:, :, [i]]) .|> data
-  cell_point = cellpoint(pointcell(points[:, i]))
-  pred_dist = pred[1] |> x -> squeeze(x, 3)
-  pred_cell = ind2sub(pred_dist, indmax(pred_dist)) |> collect
-  pred_cell_point = cellpoint(pred_cell)
-  pred_point = pred_cell_point + pred[2][pred_cell..., :, 1]
+    numevents = size(events, 3)
+    i = rand(1:numevents)
+    pred_dist, pred_point = model(events[:, :, [i]])
+    pred_dist = data(pred_dist)
+    pred_point = data.(pred_point)
 
-  println("$batchnum/$numbatches: Event $i, Loss = ",
-          loss(model, events[:, :, [i]], points[:, [i]], Val{:point}) |> data)
+    lossval = loss(model, events[:, :, [i]], points[:, [i]], Val{:dist})
+    println("$(lpad(batchnum, ndigits(numbatches), 0))/$numbatches:, ",
+            "Event $(lpad(i, ndigits(numevents), 0)) Loss = $(round(data(lossval), 3)), ",
+            "Grad = ", lossval.grad)
+#    map(println, params(model)[3:end])
 
-  lplt = spy(flipdim(events[:, :, i], 1), colorbar=false, title="Event")
-  BetaML_NN.plotpoint!(points[:, i], color=:green)
-  rplt = spy(flipdim(pred_dist, 1), colorbar=false, title="Pred. dist.")
-  BetaML_NN.plotpoint!(pred_cell_point, color=:purple)
-  BetaML_NN.plotpoint!(points[:, i], color=:green)
-  BetaML_NN.plotpoint!(pred_point, color=:red)
+    lplt = spy(events[:, :, i], colorbar=false, title="Event")
+    BetaML_NN.plotpoint!(points[:, i], color=:green)
+    rplt = spy(pred_dist[:, :, 1], colorbar=false, title="Pred. dist.")
+    BetaML_NN.plotpoint!(points[:, i], color=:green)
+    BetaML_NN.plotpoint!(pred_point[:, 1], color=:red)
 
-  plot(layout=(1, 2), lplt, rplt, aspect_ratio=1)
-  gui()
+    plot(layout=(1, 2), lplt, rplt, aspect_ratio=1)
+    gui()
 end
 
 macro try_and_save(pair, expr)

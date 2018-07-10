@@ -24,6 +24,7 @@ function readdata(range)
     (events, inits[:, 2:3])
 end
 
+# On windows spy doesn't flip anything, so keep that in mind...
 function plotpoint!(plt, p; kws...)
     xmin, xmax = xlims(plt)
     ymin, ymax = ylims(plt)
@@ -34,11 +35,11 @@ function plotpoint!(plt, p; kws...)
 end
 plotpoint!(p; kws...) = plotpoint!(Plots.current(), p; kws...)
 
-function plotevent(event, pred_grid, point, lossval)
-    input_plt = spy(flipdim(event, 1), colorbar=false)
-    plotpoint!(point)
-
-    output_plt = spy(flipdim(pred_grid, 1), title="Loss="*string(lossval), colorbar=false)
-
-    plot(layout=(1, 2), input_plt, output_plt, aspect_ratio=1)
-end
+#function plotevent(event, pred_grid, point, lossval)
+#    input_plt = spy(flipdim(event, 1), colorbar=false)
+#    plotpoint!(point)
+#
+#    output_plt = spy(flipdim(pred_grid, 1), title="Loss="*string(lossval), colorbar=false)
+#
+#    plot(layout=(1, 2), input_plt, output_plt, aspect_ratio=1)
+#end

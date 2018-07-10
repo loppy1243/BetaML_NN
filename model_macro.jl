@@ -58,9 +58,19 @@ end
 macro model(expr, params...)
     esc(modeldef(:model, expr, params...))
 end
-macro params(expr)
+macro params(args...)
+    param_arr = gensym()
+    arg_sym = gensym()
     esc(quote
-        BetaML_NN.ModelMacro.dict[:params] = $expr
+        $param_arr = Any[]
+        $((map(args) do arg
+               quote
+                   for $arg_sym in $arg
+                       push!($param_arr, $arg_sym)
+                   end
+               end
+           end)...)
+        BetaML_NN.ModelMacro.dict[:params] = $param_arr
     end)
 end
 

@@ -12,17 +12,15 @@ catloss(; ϵ=1, λ=1) = model -> (event, startcell) -> begin
     -log(ϵ + max(0, pred[startcell...])) + abs(λ*(sum(pred) - pred[startcell...]))
 end
 
-using ..pad
 function twolayer(activ; ch=1, ϵ=1, λ=1, η=0.1)
     convlayer = Chain(Conv((3, 3), 1=>ch, first(activ), pad=(1, 1)),
                       Conv((3, 3), ch=>1, pad=(1, 1)))
 
-    Model(Chain(x -> pad(x/MAX_E, width=2),
-                x -> reshape(x, (GRIDSIZE+[4, 4])..., 1, 1),
+    Model(Chain(x -> reshape(x/MAX_E, GRIDSIZE..., 1, :),
                 convlayer,
-                x -> reshape(x, CELLS),
+                x -> reshape(x, CELLS, :),
                 softmax,
-                x -> reshape(x, GRIDSIZE...)),
+                x -> reshape(x, GRIDSIZE..., :)),
           catloss(ϵ=ϵ, λ=λ),
           x -> SGD(x, η),
           params(convlayer),
@@ -30,13 +28,12 @@ function twolayer(activ; ch=1, ϵ=1, λ=1, η=0.1)
           :opt => "SGD")
 end
 function onelayer(; ϵ=1, λ=1, η=0.1)
-    convlayer = Conv((3, 3), 1=>1)
-    Model(Chain(x -> pad(x/MAX_E),
-                x -> reshape(x, (GRIDSIZE+[2, 2])..., 1, 1),
+    convlayer = Conv((3, 3), 1=>1, pad=(1, 1))
+    Model(Chain(x -> reshape(x/MAX_E, GRIDSIZE..., 1, :),
                 convlayer,
-                x -> reshape(x, CELLS),
+                x -> reshape(x, CELLS, :),
                 softmax,
-                x -> reshape(x, GRIDSIZE...)),
+                x -> reshape(x, GRIDSIZE..., :)),
           catloss(ϵ=ϵ, λ=ϵ),
           x -> SGD(x, η),
           params(convlayer),

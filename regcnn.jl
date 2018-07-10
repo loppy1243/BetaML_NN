@@ -26,11 +26,9 @@ end
 
 normloss(model) = (event, pos) -> norm(model(event)[2] - pos)
 
-using ..pad
 function convdense(activ, lossgen; ϵ=1, λ=1, δ=1, η=0.1)
-    convlayergen() = Chain(x -> pad(x/MAX_E),
-                           x -> reshape(x, (GRIDSIZE+[2, 2])..., 1, 1),
-                           Conv((3, 3), 1=>1),
+    convlayergen() = Chain(x -> reshape(x/MAX_E, GRIDSIZE..., 1, :),
+                           Conv((3, 3), 1=>1, pad=(1,1)),
                            x -> reshape(x, CELLS))
     convlayer1 = convlayergen()
     convlayer2 = convlayergen()
@@ -46,11 +44,12 @@ function convdense(activ, lossgen; ϵ=1, λ=1, δ=1, η=0.1)
     end
 
     Model(modelfunc, first(lossgen)(ϵ, λ, δ), x -> SGD(x, η),
+          [params(convlayer1); params(convlayer2); params(denselayer)],
           :activ => last(activ), :lossgen => last(lossgen), :ϵ => ϵ, :λ => λ, :δ => δ, :η => η, :opt => "SGD")
 end
 
 function staggered(file, activ; η=0.1)
-    dist_model = BSON.load(file)[:model]
+    dist_model = BSON.load(file)
     denselayer = Dense(CELLS, 2)
 
     function modelfunc(x)
@@ -61,13 +60,13 @@ function staggered(file, activ; η=0.1)
         (pred_dist, pred_pos + cellpoint(cell))
     end
 
-    Model(modelfunc, normloss, x -> SGD(x, η),
+    Model(modelfunc, normloss, x -> SGD(x, η), params(denselayer),
           :activ => last(activ), :η => η, :opt => "SGD", :loss => "normloss")
 end
 
-const model1 = convdense(relu=>"relu", lossgen1=>"lossgen1", ϵ=0.1, λ=1, η=0.1)
-const model2 = convdense(relu=>"relu", lossgen2=>"lossgen2", ϵ=0.1, λ=1, η=0.1)
-const model3 = staggered("catcnn_onelayer.bson", relu=>"relu"; η=0.1)
+#const model1 = convdense(relu=>"relu", lossgen1=>"lossgen1", ϵ=0.1, λ=1, η=0.1)
+#const model2 = convdense(relu=>"relu", lossgen2=>"lossgen2", ϵ=0.1, λ=1, η=0.1)
+#const model3 = staggered("catcnn_onelayer.bson", relu=>"relu"; η=0.1)
 
 function train(modelfile, model, events, points)
     model, epoch = if isfile(modelfile)

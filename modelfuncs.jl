@@ -1,3 +1,5 @@
+export @modelfunc
+
 using Plots
 using StatsBase: mode
 

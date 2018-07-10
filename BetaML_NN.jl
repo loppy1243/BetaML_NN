@@ -10,21 +10,17 @@ include("consts.jl")
 include("io.jl")
 include("models.jl")
 include("modelfuncs.jl")
-#include("catcnn.jl")
-#include("regcnn.jl")
+include("catcnn.jl")
+include("regcnn.jl")
 include("other.jl")
 
 regularize(events, points) = (permutedims(events, [2, 3, 1]), permutedims(points, [2, 1]))
 
 function main(events, points)
-    path = "plots/validate/pointhist"
     events, points = regularize(events, points)
 
-    model = BetaML_NN.load("othernn.bson")
-    BetaML_NN.pointhist(model, events, points, model_name="Other2NN")
-
-    !ispath(path) && mkpath(path)
-    Plots.png(path*"/othernn.png")
+    OtherNN.train("othernn2__N_5.bson", OtherNN.other(Flux.relu=>"relu", 0.01, 0.1, 5),
+                  events, points, load=false)
 end
 
 ## Set JULIA_NUM_THREADS
