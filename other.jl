@@ -41,9 +41,7 @@ function regloss(model, events, points)
     pred_cells, pred_rel_points = model(events, Val{:point})
     rel_points = points - mapslices(cellpoint, pred_cells, 1)
 
-    sum(1:size(pred_cells, 2)) do i
-        (rel_points[:, i] - pred_rel_points[pred_cells[:, i]..., :, i]).^2 |> sum
-    end
+    (rel_points - pred_rel_points).^2 |> sum
 end
 
 struct ConvUnbiased{N, A<:AbstractArray{Float64, 4}, F<:Function}
@@ -117,7 +115,7 @@ end
     pointchain = Chain(x -> reshape(x, GRIDSIZE..., 1, :),
                        Conv((M, M), 1=>N, activ, pad=(padnum, padnum), init=zeros),
                        ConvUnbiased((M, M), N=>2, pad=(padnum, padnum), init=zeros),
-                       x -> x*scale)
+                       x -> x.*reshape(scale, 1, 1, :, 1))
 
     @params(params(distchain), params(pointchain))
     @opt x -> opt(x, η)
@@ -128,7 +126,41 @@ end
     end
 
     function cellpred(dists)
-        mapslices(data(dists), 1:2) do dist
+        mapslices(dists, 1:2) do dist
+            ind2sub(dist, indmax(dist)) |> collect
+        end |> x -> squeeze(x, 2)
+    end
+
+    @model(x) do
+        () -> x |> Chain(regularize, distchain, fcat(identity, cellpred, pointchain))
+        ::Type{Val{:dist}} -> x |> Chain(regularize, fcat(distchain, cellpred))
+        ::Type{Val{:point}} -> x |> Chain(regularize, distchain, fcat(cellpred, pointchain))
+    end
+end
+
+@model function otherfulldensenn(activ=>activ_name, opt=>opt_name, ϵ, η, N)
+    regularize(x) = reshape(x/MAX_E, GRIDSIZE..., 1, :)
+
+    distchain = Chain(Conv((3, 3), 1=>1, pad=(1, 1), init=ones),
+                      x -> reshape(x, CELLS, :),
+                      softmax,
+                      x -> reshape(x, GRIDSIZE..., :))
+
+    scale = (XYMAX - XYMIN)./GRIDSIZE
+    pointchain = Chain(x -> reshape(x, CELLS, :),
+                       Dense(CELLS, N), Dense(N, 2),
+                       x -> x.*scale)
+
+    @params(params(distchain), params(pointchain))
+    @opt x -> opt(x, η)
+    @loss(model, x, y) do
+        ()                  -> fcat(distloss2(ϵ), regloss)(model, x, y)
+        ::Type{Val{:dist}}  -> distloss2(model, x, y, ϵ)
+        ::Type{Val{:point}} -> regloss(model, x, y)
+    end
+
+    function cellpred(dists)
+        mapslices(dists, 1:2) do dist
             ind2sub(dist, indmax(dist)) |> collect
         end |> x -> squeeze(x, 2)
     end
@@ -177,7 +209,7 @@ function reg_relay_info(batchnum, numbatches, model, events, points)
     numevents = size(events, 3)
     i = rand(1:numevents)
     pred_dist, pred_cell, pred_rel_point = model(events[:, :, [i]]) .|> data
-    pred_point = cellpoint(pred_cell[:, 1]) + pred_rel_point[pred_cell[:, 1]..., :, 1]
+    pred_point = cellpoint(pred_cell[:, 1]) + pred_rel_point[:, 1]
 
     lossval = loss(model, events[:, :, [i]], points[:, [i]], Val{:point})
     back!(lossval)
