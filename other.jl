@@ -25,12 +25,12 @@ end
 
 distloss2(ϵ) = (model, events, points) -> distloss2(model, events, points, ϵ)
 function distloss2(model, events, points, ϵ)
-    pred_dists, pred_cells = model(events, Val{:dist})
+    pred_dists, _ = model(events, Val{:dist})
     cells = mapslices(pointcell, points, 1)
 
     sum(1:size(cells, 2)) do i
         pred_dist = pred_dists[:, :, i]
-        cell_prob = pred_cells[:, i]
+        cell_prob = pred_dists[cells[:, i]..., i]
 
         -log(ϵ + max(0, cell_prob)) + log(1+ϵ - min(1, cell_prob)) #=
      =# -sum(x -> log(1+ϵ - min(1, x)), pred_dist)
@@ -153,7 +153,7 @@ end
 function dist_relay_info(batchnum, numbatches, model, events, points)
     numevents = size(events, 3)
     i = rand(1:numevents)
-    pred_dist = model(events[:, :, [i]], Val{:dist}) |> data
+    pred_dist, _ = model(events[:, :, [i]], Val{:dist}) .|> data
 
     lossval = loss(model, events[:, :, [i]], points[:, [i]], Val{:dist})
     back!(lossval)
@@ -176,7 +176,8 @@ end
 function reg_relay_info(batchnum, numbatches, model, events, points)
     numevents = size(events, 3)
     i = rand(1:numevents)
-    pred_dist, pred_point = model(events[:, :, [i]]) .|> data
+    pred_dist, pred_cell, pred_rel_point = model(events[:, :, [i]]) .|> data
+    pred_point = cellpoint(pred_cell[:, 1]) + pred_rel_point[pred_cell[:, 1]..., :, 1]
 
     lossval = loss(model, events[:, :, [i]], points[:, [i]], Val{:point})
     back!(lossval)
@@ -192,7 +193,7 @@ function reg_relay_info(batchnum, numbatches, model, events, points)
     BetaML_NN.plotpoint!(points[:, i], color=:green)
     rplt = spy(pred_dist[:, :, 1], colorbar=false, title="Pred. dist.")
     BetaML_NN.plotpoint!(points[:, i], color=:green)
-    BetaML_NN.plotpoint!(pred_point[:, 1], color=:red)
+    BetaML_NN.plotpoint!(pred_point, color=:red)
 
     plot(layout=(1, 2), lplt, rplt, aspect_ratio=1)
     gui()
