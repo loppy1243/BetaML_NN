@@ -19,7 +19,8 @@ regularize(events, points) = (permutedims(events, [2, 3, 1]), permutedims(points
 function main(events, points)
     events, points = regularize(events, points)
 
-    OtherNN.train("othernn2__N_5.bson", OtherNN.other(Flux.relu=>"relu", 0.01, 0.001, 50),
+    OtherNN.train("otherfullnn.bson",
+                  OtherNN.otherfullnn(Flux.relu=>"relu", Flux.ADAM=>"ADAM", 0.01, 0.01, 5, 1),
                   events, points, load=false, train_dist=true)
 end
 
