@@ -10,38 +10,51 @@ using ..BetaML_NN
 using Flux: throttle
 using Flux.Tracker: data, grad, update!, back!
 
-distloss(ϵ, λ) = (model, events, points) -> distloss(model, events, points, ϵ, λ)
-function distloss(model, events, points, ϵ, λ)
+distloss(ϵ, λ) = (args...,) -> distloss(args..., ϵ, λ)
+distloss(pred_dists, cells, ϵ, λ) = sum(1:size(cells, 2)) do i
+   pred_dist = pred_dists[:, :, i]
+   cell_prob = pred_dist[cells[:, i]...]
+
+   -log(ϵ + max(0, cell_prob)) + abs(λ*(sum(pred_dist) - cell_prob))
+end
+function distloss(model::Model, events, points, ϵ, λ)
     pred_dists = model(events, Val{:dist})
     cells = mapslices(pointcell, points, 1)
 
-    sum(1:size(cells, 2)) do i
-        pred_dist = pred_dists[:, :, i]
-        cell_prob = pred_dist[cells[:, i]...]
-
-        -log(ϵ + max(0, cell_prob)) + abs(λ*(sum(pred_dist) - cell_prob))
-    end
+    distloss(pred_dists, points, ϵ, λ)
 end
 
-distloss2(ϵ) = (model, events, points) -> distloss2(model, events, points, ϵ)
-function distloss2(model, events, points, ϵ)
+distloss2(ϵ) = (args...,) -> distloss2(args..., ϵ)
+function distloss2(pred_dists, cells, ϵ) = sum(1:size(cells, 2)) do i
+    pred_dist = pred_dists[:, :, i]
+    cell_prob = pred_dists[cells[:, i]..., i]
+
+    -log(ϵ + max(0, cell_prob)) + log(1+ϵ - min(1, cell_prob)) #=
+ =# - sum(x -> log(1+ϵ - min(1, x)), pred_dist)
+end
+function distloss2(model::Model, events, points, ϵ)
     pred_dists, _ = model(events, Val{:dist})
     cells = mapslices(pointcell, points, 1)
 
-    sum(1:size(cells, 2)) do i
-        pred_dist = pred_dists[:, :, i]
-        cell_prob = pred_dists[cells[:, i]..., i]
-
-        -log(ϵ + max(0, cell_prob)) + log(1+ϵ - min(1, cell_prob)) #=
-     =# -sum(x -> log(1+ϵ - min(1, x)), pred_dist)
-    end
+    distloss2(pred_dists, cells, ϵ)
 end
 
-function regloss(model, events, points)
+regloss(pred_rel_points, rel_points) = sum(1:size(events, 3)) do i
+    (rel_points[:, i] - pred_rel_points[pred_cells[:, i]..., :, i]).^2 |> sum
+end
+function regloss(model::Model, events, points)
     pred_cells, pred_rel_points = model(events, Val{:point})
     rel_points = points - mapslices(cellpoint, pred_cells, 1)
+    
+    regloss(pred_rel_points, rel_points)
+end
 
-    (rel_points - pred_rel_points).^2 |> sum
+totloss(ϵ, λ) = (model, events, points) -> totloss(model, events, points, ϵ, λ)
+function totloss(model, events, points, ϵ, λ)
+    pred_dists, pred_cells, pred_rel_points = model(events)
+    rel_points = points - mapslices(cellpoint, pred_cells, 1)
+
+    distloss2(pred_dists, points, ϵ) + λ*regloss(pred_rel_points, rel_points)
 end
 
 struct ConvUnbiased{N, A<:AbstractArray{Float64, 4}, F<:Function}
@@ -99,6 +112,42 @@ ConvUnbiased(dims::NTuple{N}, chs, activ=identity; stride=map(_->1, dims),
             y = regularize(x)
             pointpred(y, distchain(y))
         end
+    end
+end
+
+@model function otherfullnn_biased(activ=>activ_name, opt=>opt_name, ϵ, η, M, N)
+    regularize(x) = reshape(x/MAX_E, GRIDSIZE..., 1, :)
+
+    distchain = Chain(Conv((3, 3), 1=>1, pad=(1, 1), init=ones),
+                      x -> reshape(x, CELLS, :),
+                      softmax,
+                      x -> reshape(x, GRIDSIZE..., :))
+
+    padnum = div(M-1, 2)
+    scale = (XYMAX - XYMIN)./GRIDSIZE*M
+    pointchain = Chain(x -> reshape(x, GRIDSIZE..., 1, :),
+                       Conv((M, M), 1=>N, activ, pad=(padnum, padnum), init=zeros),
+                       Conv((M, M), N=>2, pad=(padnum, padnum), init=zeros),
+                       x -> x.*reshape(scale, 1, 1, :, 1))
+
+    @params(params(distchain), params(pointchain))
+    @opt x -> opt(x, η)
+    @loss(model, x, y) do
+        ()                  -> fcat(distloss2(ϵ), regloss)(model, x, y)
+        ::Type{Val{:dist}}  -> distloss2(model, x, y, ϵ)
+        ::Type{Val{:point}} -> regloss(model, x, y)
+    end
+
+    function cellpred(dists)
+        mapslices(dists, 1:2) do dist
+            ind2sub(dist, indmax(dist)) |> collect
+        end |> x -> squeeze(x, 2)
+    end
+
+    @model(x) do
+        () -> x |> Chain(regularize, distchain, fcat(identity, cellpred, pointchain))
+        ::Type{Val{:dist}} -> x |> Chain(regularize, fcat(distchain, cellpred))
+        ::Type{Val{:point}} -> x |> Chain(regularize, distchain, fcat(cellpred, pointchain))
     end
 end
 
@@ -172,6 +221,50 @@ end
     end
 end
 
+@model function completely_other(activ=>activ_name, opt=>opt_name, ϵ, λ, η, N)
+    regularize(x) = reshape(x/MAX_E, GRIDSIZE..., 1, :)
+
+    function cellpred(dists)
+        mapslices(dists, 1:2) do dist
+            ind2sub(dist, indmax(dist)) |> collect
+        end |> x -> squeeze(x, 2)
+    end
+
+    function recenter(dists)
+        cells = cellpred(dists)
+
+        ret = zeros(eltype(dists), size(dists).*2 .+ 1)
+
+        for k in indices(ret, 1), l in indices(ret, 2), i in indices(ret, 3)
+            m, n = cells[:, i]
+            ixs = [k-m, l-n] .+ 2GRIDSIZE .+ 1
+
+            ret[k, l, i] = dists[ixs..., i]
+        end
+
+        Flux.Tracker.collect(ret)
+    end
+
+    distchain = Chain(Conv((3, 3), 1=>1, pad=(1, 1), init=ones),
+                      x -> reshape(x, CELLS, :),
+                      softmax,
+                      x -> reshape(x, GRIDSIZE..., :))
+
+    scale = (XYMAX - XYMIN)./GRIDSIZE
+    nodes = sum(2GRIDSIZE.+1)
+    pointchain = Chain(recenter,
+                       x -> reshape(x, nodes, :),
+                       Dense(nodes, N), Dense(N, 2),
+                       x -> x.*scale)
+
+    @params(params(distchain), params(pointchain))
+    @opt x -> opt(x, η)
+    @loss (model, x, y) -> totloss(model, x, y, ϵ, λ)
+
+    # TODO: make it so that x -> x isn't needed here.
+    @model x -> x |> Chain(regularize, distchain, fcat(identity, cellpred, pointchain))
+end
+
 function batch(xs, sz)
     lastdim = ndims(xs)
     ret = []
@@ -209,17 +302,17 @@ function reg_relay_info(batchnum, numbatches, model, events, points)
     numevents = size(events, 3)
     i = rand(1:numevents)
     pred_dist, pred_cell, pred_rel_point = model(events[:, :, [i]]) .|> data
-    pred_point = cellpoint(pred_cell[:, 1]) + pred_rel_point[:, 1]
+    pred_point = cellpoint(pred_cell[:, 1]) + pred_rel_point[pred_cell[:, 1]..., :, 1]
 
     lossval = loss(model, events[:, :, [i]], points[:, [i]], Val{:point})
     back!(lossval)
-    conv1_grad, bias_grad, conv2_grad = params(model)[3:end] .|> grad .|> vecnorm
+    conv1_grad, bias_grad, conv2_grad, conv2_bias = params(model)[3:end] .|> grad .|> vecnorm
     # Don't update!() since it appears train!() calls it after the callback.
 
     println("$(lpad(batchnum, ndigits(numbatches), 0))/$numbatches: ",
             "Event $(lpad(i, ndigits(numevents), 0)), Loss = $(signif(data(lossval), 4)), ",
             "Grad: Conv1 = $(signif(conv1_grad, 4)) | Bias = $(signif(bias_grad, 4)) ",
-            "| Conv2 = $(signif(conv2_grad, 4))")
+            "| Conv2 = $(signif(conv2_grad, 4)) | Bias = $(signif(bias_grad, 4))")
 
     lplt = spy(events[:, :, i], colorbar=false, title="Event")
     BetaML_NN.plotpoint!(points[:, i], color=:green)
@@ -275,6 +368,29 @@ function train(file, model, events, points; load=true, train_dist=true, train_re
         println("Training reg. epoch...")
         shuffle!(batches)
         Flux.Optimise.train!((x, y) -> loss(model, x, y, Val{:point}), batches, optimizer(model),
+                             cb=[update_info, t_save, t_reg_relay_info])
+    end
+end
+
+function completely_train(file, model, events, points; load=true)
+    model = isfile(file) && load ? BetaML_NN.load(file) : model
+
+    batches = zip(batch(events, BATCHSIZE), batch(points, BATCHSIZE)) |> collect
+    numbatches = length(batches)
+
+    batchnum = Ref(0)
+    update_info() = batchnum.x += 1
+    t_save = throttle(20) do
+        BetaML_NN.save(file, model)
+    end
+    t_reg_relay_info = throttle(3) do
+        reg_relay_info(batchnum.x, numbatches, model, events, points)
+    end
+
+    @try_and_save model=>file begin
+        println("Training...")
+        shuffle!(batches)
+        Flux.Optimise.train!((x, y) -> loss(model, x, y), batches, optimizer(model),
                              cb=[update_info, t_save, t_reg_relay_info])
     end
 end
