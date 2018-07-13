@@ -1,16 +1,19 @@
-export Model, loss, hyperparams, optimizer, @model
+export Model, loss, hyperparams, optimizer, @model, predict
 
 import Flux
 using Flux.Tracker: data
 
-struct Model{M, L<:Function, O<:Function} <: Function
+abstract type ModelOutput end
+
+struct Model{Out<:ModelOutput, M, L<:Function, O<:Function} <: Function
     model::M
     loss::L
     optimizer::O
     params::Vector{Any}
     hyperparams::Dict{Symbol}
 
-    Model{M, L, O}(model, loss, opt, params, pairs...) where {M, L<:Function, O<:Function} =
+    Model{Out, M, L, O}(model, loss, opt, params, pairs...) where
+         {Out<:ModelOutput, M, L<:Function, O<:Function} =
         new(model, loss, opt, params, Dict(pairs...))
 end
 function Model(model, loss, opt, params, pairs...)
@@ -28,6 +31,8 @@ Flux.params(m::Model) = m.params
 
 # Can we just set m.optimizer = optimizer(params(m)) ?
 optimizer(m::Model) = m.optimizer(Flux.params(m))
+
+predict(model, args...) = throw(MethodError(predict, (model, args...)))
 
 #function train(file, model, xs, ys; lastepoch=1, callback=() -> nothing)
 #    println("Training model...")

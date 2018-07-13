@@ -5,7 +5,7 @@ using ..Model
 const dict = Dict()
 
 function modeldef(name::Symbol, expr::Expr, params...)
-    length(params) == 0 && return :(BetaML_NN.ModelMacro.dict[$(Meta.quot(name))] = $expr)
+    isempty(params) && return :(BetaML_NN.ModelMacro.dict[$(Meta.quot(name))] = $expr)
 
     @assert expr.head == :(->)
     @assert expr.args[1] == Expr(:tuple)
@@ -49,16 +49,16 @@ else
     (param, param_name(param), nothing)
 end
 
-macro loss(expr, params...)
+macro loss_(expr, params...)
     esc(modeldef(:loss, expr, params...))
 end
-macro opt(expr, params...)
+macro opt_(expr, params...)
     esc(modeldef(:opt, expr, params...))
 end
-macro model(expr, params...)
+macro model_(expr, params...)
     esc(modeldef(:model, expr, params...))
 end
-macro params(args...)
+macro params_(args...)
     param_arr = gensym()
     arg_sym = gensym()
     esc(quote
@@ -106,7 +106,7 @@ macro model(expr::Expr)
         if line isa Expr #=
         =# && line.head == :macrocall #=
         =# && line.args[1] in map(Symbol, ("@loss", "@opt", "@model", "@params"))
-            line.args[1] = :(BetaML_NN.ModelMacro.$(line.args[1]))
+            line.args[1] = :(BetaML_NN.ModelMacro.$(string(line.args[1])*"_" |> Symbol))
         end
     end
     prepend!(expr.args[2].args, [head_expr])

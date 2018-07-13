@@ -17,16 +17,10 @@ macro modelfunc(funcdecl)
     end
 end
 
-# FIXME
 @modelfunc function pointhist(model, events, points; model_name="", batchsize=1000)
     numevents = size(events, 3)
     print("Computing predictions (out of $numevents)...")
-    preds = Array{Float64}(2, numevents)
-    for i = 0:batchsize:numevents-1
-        print(" ", i)
-        pred_dists, pred_rel_poinst = model(events[:, :, i+1:min(end, i+batchsize)]) .|> data
-        preds[:, i+1:min(end, i+batchsize)] .= pred_cell_point + pred_rel_point
-    end
+    preds = predict(model, events)
     println(" Done.")
   
     print("Computing distances...")

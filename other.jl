@@ -25,7 +25,7 @@ function distloss(model::Model, events, points, ϵ, λ)
 end
 
 distloss2(ϵ) = (args...,) -> distloss2(args..., ϵ)
-function distloss2(pred_dists, cells, ϵ) = sum(1:size(cells, 2)) do i
+distloss2(pred_dists, cells, ϵ) = sum(1:size(cells, 2)) do i
     pred_dist = pred_dists[:, :, i]
     cell_prob = pred_dists[cells[:, i]..., i]
 
@@ -39,8 +39,8 @@ function distloss2(model::Model, events, points, ϵ)
     distloss2(pred_dists, cells, ϵ)
 end
 
-regloss(pred_rel_points, rel_points) = sum(1:size(events, 3)) do i
-    (rel_points[:, i] - pred_rel_points[pred_cells[:, i]..., :, i]).^2 |> sum
+regloss(pred_rel_points, rel_points) = sum(1:size(rel_points, 2)) do i
+    (rel_points[:, i] - pred_rel_points[:, i]).^2 |> sum
 end
 function regloss(model::Model, events, points)
     pred_cells, pred_rel_points = model(events, Val{:point})
@@ -53,8 +53,9 @@ totloss(ϵ, λ) = (model, events, points) -> totloss(model, events, points, ϵ, 
 function totloss(model, events, points, ϵ, λ)
     pred_dists, pred_cells, pred_rel_points = model(events)
     rel_points = points - mapslices(cellpoint, pred_cells, 1)
+    cells = mapslices(pointcell, points, 1)
 
-    distloss2(pred_dists, points, ϵ) + λ*regloss(pred_rel_points, rel_points)
+    distloss2(pred_dists, cells, ϵ) + λ*regloss(pred_rel_points, rel_points)
 end
 
 struct ConvUnbiased{N, A<:AbstractArray{Float64, 4}, F<:Function}
@@ -68,6 +69,25 @@ ConvUnbiased(dims::NTuple{N}, chs, activ=identity; stride=map(_->1, dims),
              pad=map(_->1, dims), init=rand) where N =
     ConvUnbiased(activ, param(init(dims..., chs...)), stride, pad)
 (c::ConvUnbiased)(x) = c.activ.(NNlib.conv(x, c.weights, stride=c.stride, pad=c.pad))
+
+abstract type DistPoint <: ModelOutput end
+
+BetaML_NN.predict(model::Model{DistPoint}, events) =
+    BetaML_NN.predict(DistPointModel, model, events, Val{:point})
+BetaML_NN.predict(model::Model{DistPoint}, events, ::Type{Val{:dist}}) =
+    model(event)[1] |> data
+BetaML_NN.predict(model::Model{DistPoint}, events, ::Type{Val{:cell}}) =
+    model(event)[2] |> data
+function BetaML_NN.predict(model::Model{DistPoint}, events, ::Type{Val{:point}})
+    pred_cells, pred_rel_points = model(events)[3] .|> data
+    pred_cell_points = mapslices(cellpoint, pred_cells, 1)
+
+    pred_cell_points + pred_rel_points
+end
+BetaML_NN.predict(model::Model{DistPoint}, event::AbstractArray{T, 2}) where T =
+    squeeze(BetaML_NN.predict(model, @reshape event[:, :, _]), 2)
+BetaML_NN.predict(model::Model{DistPoint}, event::AbstractArray{T, 2}, val) where T =
+    squeeze(BetaML_NN.predict(model, @reshape event[:, :, _], val), 2)
 
 @model function other(activ=>activ_name, opt=>opt_name, ϵ, η, N)
     regularize(x) = reshape(x/MAX_E, GRIDSIZE..., 1, :)
@@ -230,39 +250,44 @@ end
         end |> x -> squeeze(x, 2)
     end
 
-    function recenter(dists)
-        cells = cellpred(dists)
+    function recenter(dists, cells)
+        ret = zeros(eltype(dists), (2GRIDSIZE .+ 1)..., size(dists, 3))
 
-        ret = zeros(eltype(dists), size(dists).*2 .+ 1)
+        for k = 1:GRIDSIZE[1], l = 1:GRIDSIZE[2], i in indices(dists, 3)
+            ixs = [k, l] - cells[:, i] + GRIDSIZE .+ 1
 
-        for k in indices(ret, 1), l in indices(ret, 2), i in indices(ret, 3)
-            m, n = cells[:, i]
-            ixs = [k-m, l-n] .+ 2GRIDSIZE .+ 1
-
-            ret[k, l, i] = dists[ixs..., i]
+            ret[ixs..., i] = dists[k, l, i]
         end
 
         Flux.Tracker.collect(ret)
     end
 
+    scale = (XYMAX - XYMIN)./GRIDSIZE
+    nodes = prod(2GRIDSIZE.+1)
+
     distchain = Chain(Conv((3, 3), 1=>1, pad=(1, 1), init=ones),
                       x -> reshape(x, CELLS, :),
                       softmax,
                       x -> reshape(x, GRIDSIZE..., :))
+    # Set init=zeros
+    denselayer = Chain(Dense(nodes, N), Dense(N, 2))
+    # We cut the gradient propagation here, otherwise it appears to be prohibitively long to
+    # train.
+    pointchain(x, cells) = data(x) |> Chain(y -> recenter(y, cells),
+                                            y -> reshape(y, nodes, :),
+                                            denselayer,
+                                            y -> y.*scale)
 
-    scale = (XYMAX - XYMIN)./GRIDSIZE
-    nodes = sum(2GRIDSIZE.+1)
-    pointchain = Chain(recenter,
-                       x -> reshape(x, nodes, :),
-                       Dense(nodes, N), Dense(N, 2),
-                       x -> x.*scale)
-
-    @params(params(distchain), params(pointchain))
+    @params(params(distchain), params(denselayer))
     @opt x -> opt(x, η)
-    @loss (model, x, y) -> totloss(model, x, y, ϵ, λ)
+    @loss totloss(ϵ, λ)
 
-    # TODO: make it so that x -> x isn't needed here.
-    @model x -> x |> Chain(regularize, distchain, fcat(identity, cellpred, pointchain))
+    @model Chain(regularize,
+                 distchain,
+                 x -> begin
+                    cells = cellpred(x)
+                    (x, cells, pointchain(x, cells))
+                 end)
 end
 
 function batch(xs, sz)
@@ -302,17 +327,19 @@ function reg_relay_info(batchnum, numbatches, model, events, points)
     numevents = size(events, 3)
     i = rand(1:numevents)
     pred_dist, pred_cell, pred_rel_point = model(events[:, :, [i]]) .|> data
-    pred_point = cellpoint(pred_cell[:, 1]) + pred_rel_point[pred_cell[:, 1]..., :, 1]
+    pred_point = cellpoint(pred_cell[:, 1]) + pred_rel_point[:, 1]
 
-    lossval = loss(model, events[:, :, [i]], points[:, [i]], Val{:point})
+    lossval = loss(model, events[:, :, [i]], points[:, [i]])
     back!(lossval)
-    conv1_grad, bias_grad, conv2_grad, conv2_bias = params(model)[3:end] .|> grad .|> vecnorm
+    conv_grad, cbias_grad, dense1_grad, dbias1_grad, dense2_grad, dbias2_grad =
+        params(model) .|> grad .|> vecnorm
     # Don't update!() since it appears train!() calls it after the callback.
 
     println("$(lpad(batchnum, ndigits(numbatches), 0))/$numbatches: ",
             "Event $(lpad(i, ndigits(numevents), 0)), Loss = $(signif(data(lossval), 4)), ",
-            "Grad: Conv1 = $(signif(conv1_grad, 4)) | Bias = $(signif(bias_grad, 4)) ",
-            "| Conv2 = $(signif(conv2_grad, 4)) | Bias = $(signif(bias_grad, 4))")
+            "Grad: Conv = ($(signif(conv_grad, 4)), $(signif(cbias_grad, 4))) ",
+            "| Dense1 = ($(signif(dense1_grad, 4)), $(signif(dbias1_grad, 4))) ",
+            "| Dense2 = ($(signif(dense2_grad, 4)), $(signif(dbias2_grad, 4)))")
 
     lplt = spy(events[:, :, i], colorbar=false, title="Event")
     BetaML_NN.plotpoint!(points[:, i], color=:green)

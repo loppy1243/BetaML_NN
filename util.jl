@@ -1,4 +1,4 @@
-export @λ, fcat, xrel, yrel
+export @λ, @reshape, fcat, xrel, yrel
 
 import Plots
 
@@ -23,7 +23,7 @@ function _λ!(expr::Expr, splat_sym::Symbol)
             splat = true
             Expr(:..., splat_sym)
         else
-            expr.head == :call ? :(@λ $x) : x
+            expr.head == :call ? :($(current_module() |> module_name).@λ $x) : x
         end
     end
     
