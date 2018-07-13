@@ -10,8 +10,8 @@ include("consts.jl")
 include("io.jl")
 include("models.jl")
 include("modelfuncs.jl")
-include("catcnn.jl")
-include("regcnn.jl")
+#include("catcnn.jl")
+#include("regcnn.jl")
 include("other.jl")
 
 regularize(events, points) = (permutedims(events, [2, 3, 1]), permutedims(points, [2, 1]))
@@ -20,7 +20,10 @@ function main(events, points)
     events, points = regularize(events, points)
 
     dir = "plots/train/pointhist"
-    hist = pointhist("completely_other.bson", events, points, model_name="CompletelyOther")
+    pointhist("completely_other.bson", events, points, model_name="CompletelyOther")
+
+    !ispath(dir) && mkpath(dir)
+    Plots.png(dir*"/completely_other.png")
 end
 
 ## Set JULIA_NUM_THREADS

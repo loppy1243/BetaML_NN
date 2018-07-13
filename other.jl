@@ -85,9 +85,9 @@ function BetaML_NN.predict(model::Model{DistPoint}, events, ::Type{Val{:point}})
     pred_cell_points + pred_rel_points
 end
 BetaML_NN.predict(model::Model{DistPoint}, event::AbstractArray{T, 2}) where T =
-    squeeze(BetaML_NN.predict(model, @reshape event[:, :, _]), 2)
+    squeeze(BetaML_NN.predict(model, @reshape(event[:, :, _])), 2)
 BetaML_NN.predict(model::Model{DistPoint}, event::AbstractArray{T, 2}, val) where T =
-    squeeze(BetaML_NN.predict(model, @reshape event[:, :, _], val), 2)
+    squeeze(BetaML_NN.predict(model, @reshape(event[:, :, _]), val), 2)
 
 @model function other(activ=>activ_name, opt=>opt_name, ϵ, η, N)
     regularize(x) = reshape(x/MAX_E, GRIDSIZE..., 1, :)
@@ -98,6 +98,7 @@ BetaML_NN.predict(model::Model{DistPoint}, event::AbstractArray{T, 2}, val) wher
     pointchain = Chain(Conv((5, 5), 1=>N, activ, pad=(2, 2)),
                        ConvUnbiased((5, 5), N=>2, pad=(2, 2)))
 
+    @type DistPoint
     @params(params(distchain), params(pointchain))
     @opt x -> opt(x, η)
     @loss(model, x, y) do
@@ -150,6 +151,7 @@ end
                        Conv((M, M), N=>2, pad=(padnum, padnum), init=zeros),
                        x -> x.*reshape(scale, 1, 1, :, 1))
 
+    @type DistPoint
     @params(params(distchain), params(pointchain))
     @opt x -> opt(x, η)
     @loss(model, x, y) do
@@ -186,6 +188,7 @@ end
                        ConvUnbiased((M, M), N=>2, pad=(padnum, padnum), init=zeros),
                        x -> x.*reshape(scale, 1, 1, :, 1))
 
+    @type DistPoint
     @params(params(distchain), params(pointchain))
     @opt x -> opt(x, η)
     @loss(model, x, y) do
@@ -220,6 +223,7 @@ end
                        Dense(CELLS, N), Dense(N, 2),
                        x -> x.*scale)
 
+    @type DistPoint
     @params(params(distchain), params(pointchain))
     @opt x -> opt(x, η)
     @loss(model, x, y) do
@@ -278,6 +282,7 @@ end
                                             denselayer,
                                             y -> y.*scale)
 
+    @DistPoint
     @params(params(distchain), params(denselayer))
     @opt x -> opt(x, η)
     @loss totloss(ϵ, λ)

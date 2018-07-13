@@ -1,4 +1,4 @@
-export Model, loss, hyperparams, optimizer, @model, predict
+export Model, loss, hyperparams, optimizer, @model, predict, ModelOutput
 
 import Flux
 using Flux.Tracker: data
@@ -16,9 +16,9 @@ struct Model{Out<:ModelOutput, M, L<:Function, O<:Function} <: Function
          {Out<:ModelOutput, M, L<:Function, O<:Function} =
         new(model, loss, opt, params, Dict(pairs...))
 end
-function Model(model, loss, opt, params, pairs...)
+function Model{Out}(model, loss, opt, params, pairs...) where Out<:ModelOutput
     lossf = (xs...) -> loss(model, xs...)
-    Model{typeof(model), typeof(lossf), typeof(opt)}(model, lossf, opt, params, pairs...)
+    Model{Out, typeof(model), typeof(lossf), typeof(opt)}(model, lossf, opt, params, pairs...)
 end
 
 (m::Model{M, L, O})(xs...) where {M, L<:Function, O<:Function} = m.model(xs...)

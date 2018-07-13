@@ -49,6 +49,9 @@ else
     (param, param_name(param), nothing)
 end
 
+macro type_(val)
+    :(BetaML_NN.ModelMacro.dict[:type] = $(esc(val)))
+end
 macro loss_(expr, params...)
     esc(modeldef(:loss, expr, params...))
 end
@@ -90,10 +93,12 @@ macro model(expr::Expr)
     head_expr = quote; $(pdefs...) end
     ret_expr = quote
         try
-            Model(BetaML_NN.ModelMacro.dict[:model], BetaML_NN.ModelMacro.dict[:loss],
+            Model{BetaML_NN.ModelMacro.dict[:type]}#=
+               =#(BetaML_NN.ModelMacro.dict[:model], BetaML_NN.ModelMacro.dict[:loss],
                   BetaML_NN.ModelMacro.dict[:opt], BetaML_NN.ModelMacro.dict[:params],
                   $(ppairs...))
         finally
+            delete!(BetaML_NN.ModelMacro.dict, :type)
             delete!(BetaML_NN.ModelMacro.dict, :model)
             delete!(BetaML_NN.ModelMacro.dict, :loss)
             delete!(BetaML_NN.ModelMacro.dict, :opt)
@@ -105,7 +110,7 @@ macro model(expr::Expr)
     for line in expr.args[2].args
         if line isa Expr #=
         =# && line.head == :macrocall #=
-        =# && line.args[1] in map(Symbol, ("@loss", "@opt", "@model", "@params"))
+        =# && line.args[1] in map(Symbol, ("@type", "@loss", "@opt", "@model", "@params"))
             line.args[1] = :(BetaML_NN.ModelMacro.$(string(line.args[1])*"_" |> Symbol))
         end
     end

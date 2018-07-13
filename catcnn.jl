@@ -12,20 +12,22 @@ catloss(; ϵ=1, λ=1) = model -> (event, startcell) -> begin
     -log(ϵ + max(0, pred[startcell...])) + abs(λ*(sum(pred) - pred[startcell...]))
 end
 
+abstract type Dist <: ModelOutput
+
 function twolayer(activ; ch=1, ϵ=1, λ=1, η=0.1)
     convlayer = Chain(Conv((3, 3), 1=>ch, first(activ), pad=(1, 1)),
                       Conv((3, 3), ch=>1, pad=(1, 1)))
 
-    Model(Chain(x -> reshape(x/MAX_E, GRIDSIZE..., 1, :),
-                convlayer,
-                x -> reshape(x, CELLS, :),
-                softmax,
-                x -> reshape(x, GRIDSIZE..., :)),
-          catloss(ϵ=ϵ, λ=λ),
-          x -> SGD(x, η),
-          params(convlayer),
-          :ch => ch, :activ => last(activ), :ϵ => ϵ, :λ => λ, :η => η,
-          :opt => "SGD")
+    Model{Dist}(Chain(x -> reshape(x/MAX_E, GRIDSIZE..., 1, :),
+                      convlayer,
+                      x -> reshape(x, CELLS, :),
+                      softmax,
+                      x -> reshape(x, GRIDSIZE..., :)),
+                catloss(ϵ=ϵ, λ=λ),
+                x -> SGD(x, η),
+                params(convlayer),
+                :ch => ch, :activ => last(activ), :ϵ => ϵ, :λ => λ, :η => η,
+                :opt => "SGD")
 end
 function onelayer(; ϵ=1, λ=1, η=0.1)
     convlayer = Conv((3, 3), 1=>1, pad=(1, 1))
