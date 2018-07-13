@@ -50,7 +50,7 @@ else
 end
 
 macro type_(val)
-    :(BetaML_NN.ModelMacro.dict[:type] = $(esc(val)))
+    esc(:(BetaML_NN.ModelMacro.dict[:type] = $val))
 end
 macro loss_(expr, params...)
     esc(modeldef(:loss, expr, params...))

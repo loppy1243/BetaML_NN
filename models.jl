@@ -20,8 +20,7 @@ function Model{Out}(model, loss, opt, params, pairs...) where Out<:ModelOutput
     lossf = (xs...) -> loss(model, xs...)
     Model{Out, typeof(model), typeof(lossf), typeof(opt)}(model, lossf, opt, params, pairs...)
 end
-
-(m::Model{M, L, O})(xs...) where {M, L<:Function, O<:Function} = m.model(xs...)
+(m::Model)(xs...) = m.model(xs...)
 
 loss(m::Model) = m.loss
 loss(m::Model, xs...) = m.loss(xs...)

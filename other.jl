@@ -73,13 +73,13 @@ ConvUnbiased(dims::NTuple{N}, chs, activ=identity; stride=map(_->1, dims),
 abstract type DistPoint <: ModelOutput end
 
 BetaML_NN.predict(model::Model{DistPoint}, events) =
-    BetaML_NN.predict(DistPointModel, model, events, Val{:point})
+    BetaML_NN.predict(model, events, Val{:point})
 BetaML_NN.predict(model::Model{DistPoint}, events, ::Type{Val{:dist}}) =
     model(event)[1] |> data
 BetaML_NN.predict(model::Model{DistPoint}, events, ::Type{Val{:cell}}) =
     model(event)[2] |> data
 function BetaML_NN.predict(model::Model{DistPoint}, events, ::Type{Val{:point}})
-    pred_cells, pred_rel_points = model(events)[3] .|> data
+    _, pred_cells, pred_rel_points = model(events) .|> data
     pred_cell_points = mapslices(cellpoint, pred_cells, 1)
 
     pred_cell_points + pred_rel_points
@@ -282,7 +282,57 @@ end
                                             denselayer,
                                             y -> y.*scale)
 
-    @DistPoint
+    @type DistPoint
+    @params(params(distchain), params(denselayer))
+    @opt x -> opt(x, η)
+    @loss totloss(ϵ, λ)
+
+    @model Chain(regularize,
+                 distchain,
+                 x -> begin
+                    cells = cellpred(x)
+                    (x, cells, pointchain(x, cells))
+                 end)
+end
+
+@model function fully_completely_other(activ=>activ_name, opt=>opt_name, ϵ, λ, η, N)
+    regularize(x) = reshape(x/MAX_E, GRIDSIZE..., 1, :)
+
+    function cellpred(dists)
+        mapslices(dists, 1:2) do dist
+            ind2sub(dist, indmax(dist)) |> collect
+        end |> x -> squeeze(x, 2)
+    end
+
+    function recenter(dists, cells)
+        ret = zeros(eltype(dists), (2GRIDSIZE .+ 1)..., size(dists, 3))
+
+        for k = 1:GRIDSIZE[1], l = 1:GRIDSIZE[2], i in indices(dists, 3)
+            ixs = [k, l] - cells[:, i] + GRIDSIZE .+ 1
+
+            ret[ixs..., i] = dists[k, l, i]
+        end
+
+        Flux.Tracker.collect(ret)
+    end
+
+    scale = (XYMAX - XYMIN)./GRIDSIZE
+    nodes = prod(2GRIDSIZE.+1)
+
+    distchain = Chain(Conv((3, 3), 1=>1, pad=(1, 1), init=ones),
+                      x -> reshape(x, CELLS, :),
+                      softmax,
+                      x -> reshape(x, GRIDSIZE..., :))
+    # Set init=zeros
+    denselayer = Chain(Dense(nodes, N, init=zeros), Dense(N, 2, init=zeros))
+    # We cut the gradient propagation here, otherwise it appears to be prohibitively long to
+    # train.
+    pointchain(x, cells) = x |> Chain(y -> recenter(y, cells),
+                                      y -> reshape(y, nodes, :),
+                                      denselayer,
+                                      y -> y.*scale)
+
+    @type DistPoint
     @params(params(distchain), params(denselayer))
     @opt x -> opt(x, η)
     @loss totloss(ϵ, λ)
