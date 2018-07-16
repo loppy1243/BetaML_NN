@@ -84,10 +84,8 @@ function BetaML_NN.predict(model::Model{DistPoint}, events, ::Type{Val{:point}})
 
     pred_cell_points + pred_rel_points
 end
-BetaML_NN.predict(model::Model{DistPoint}, event::AbstractArray{T, 2}) where T =
-    squeeze(BetaML_NN.predict(model, @reshape(event[:, :, _])), 2)
-BetaML_NN.predict(model::Model{DistPoint}, event::AbstractArray{T, 2}, val) where T =
-    squeeze(BetaML_NN.predict(model, @reshape(event[:, :, _]), val), 2)
+BetaML_NN.predict(model::Model{DistPoint}, event::AbstractArray{T, 2}, args...) where T =
+    squeeze(BetaML_NN.predict(model, @reshape(event[:, :, _]), args...), 2)
 
 @model function other(activ=>activ_name, opt=>opt_name, ϵ, η, N)
     regularize(x) = reshape(x/MAX_E, GRIDSIZE..., 1, :)

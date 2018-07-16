@@ -3,54 +3,86 @@ export @modelfunc
 using Plots
 using StatsBase: mode
 
-macro modelfunc(funcdecl)
-    @assert funcdecl.head == :function || funcdecl.head == :(=) #=
-         =# && funcdecl.args[1].head == :call
+## TODO: Dream
+#@def_functype modelfunc begin
+#    modelfunc(modelfile::AbstractString events, cells, args...; kws...) =
+#        modelfunc(BetaML_NN.load(modelfile), events, cells, args...; kws...)
+#end
+#macro def_functype(name, expr)
+#    quote
+#        macro $(esc(name))(funcdecl)
+#            @assert funcdecl.head == :function || funcdecl.head == :(=) #=
+#                 =# && funcdecl.args[1].head == :call
+#
+#            fname = esc(funcdecl.args[1].args[1])
+#
+#            quote
+#            end
+#        end
+#    end
+#end
 
-    fname = esc(funcdecl.args[1].args[1])
+macro modelfunc(funcname)
+    fname = esc(funcname)
 
     quote
         $fname(modelfile::AbstractString, events, cells, args...; kws...) =
             $fname(BetaML_NN.load(modelfile), events, cells, args...; kws...)
-
-        $(esc(funcdecl))
     end
 end
 
-@modelfunc function pointhist(model, events, points; model_name="")
+@modelfunc pointhist
+pointhist(model, args...; kws...) = pointhist([model], args...; kws...)
+function pointhist(models::AbstractVector, events, points, y, p; model_name=[], color=[])
     print("Computing predictions...")
-    preds = predict(model, events)
+    preds = map(x -> predict(x, events), models)
     println(" Done.")
   
     print("Computing distances...")
-    dists = squeeze(mapslices(norm, preds - points, 1), 1)
-    println(" Done.")
-
-    print("Computing statistics...") 
-    me = mean(dists)
-    mo = mode(dists)
-    st = std(dists, mean=me)
-    m = minimum(dists)
-    M = maximum(dists)
+    dists = map(x -> squeeze(mapslices(norm, x - points, 1), 1), preds)
     println(" Done.")
 
     print("Generating histogram...")
-    linhist1 = stephist(dists, legend=false, title=model_name)
-    linhist2 = stephist(dists, legend=false, title=model_name, xlims=(0, 4))
-    annotate!(xrel(0.7), yrel(0.9),
-              "Min -- Max: "*string(round(m, 3))*" -- "*string(round(M, 3)))
-    annotate!(xrel(0.7), yrel(0.8), "Mean: "*string(round(me, 3)))
-    annotate!(xrel(0.7), yrel(0.7), "Mode: "*string(round(mo, 3)))
-    annotate!(xrel(0.7), yrel(0.6), "STD: "*string(round(st, 3)))
-    loghist1 = stephist(dists, legend=false, yaxis=(:log10, (1, Inf)),
+
+    cs = @reshape color[_, :]
+    linhist1 = stephist(dists, label=model_name, color=cs)
+    linhist2 = stephist(dists, legend=false, xlims=(0, 4), color=cs)
+    loghist1 = stephist(dists, legend=false, yaxis=(:log10, (1, Inf)), color=cs,
                         xlabel="Dist. of pred. from true (mm)")
+
+    blank = plot(axis=false)
+    hist = plot(layout=(1, 2), plot(layout=(2, 1), linhist1, loghist1),
+                               plot(layout=(2, 1), linhist2, blank),
+                               size=(3*500, 500))
     println(" Done.")
 
-    plot(layout=(1, 2), plot(layout=(2, 1), linhist1, loghist1),
-                        plot(layout=(2, 1), linhist2, plot(axis=false)))
+    print("Computing statistics...") 
+    ms = map(minimum, dists)
+    Ms = map(maximum, dists)
+    mes = map(mean, dists)
+    mos = map(mode, dists)
+    sts = map((x, y) -> std(x, mean=y), dists, mes)
+    xs = map(dists) do ds
+        count(ds .< y)/length(ds)
+    end
+    qs = map(dists) do ds
+        Base.quantile(ds, p)
+    end
+    println(" Done.")
+
+    for (name, stats) in zip(model_name, zip(xs, qs, ms, Ms, mes, mos, sts))
+        padding = isempty(model_name) ? "" : " "^4
+        !isempty(model_name) && println("$name:")
+        map(("P(<$y)", "$(p.*100)-%tiles", "Min", "Max", "Mean", "Mode", "SD"), stats) do a, b
+            println(padding, a, " = ", b)
+        end
+    end
+
+    (hist, xs, qs, ms, Ms, mes, mos, sts)
 end
 
-@modelfunc function quantile(model, events, points, y, p)
+@modelfunc quantile
+function quantile(model, events, points, y, p)
     print("Computing predictions...")
     pred_points = predict(model, events)
     println(" Done.")
@@ -64,7 +96,7 @@ end
     q = Base.quantile(dists, p)
     println(" Done.")
 
-    println("(P(<3mm), 90th-%tile) = ", (x, q))
+    println("(P(<y), $p-%tile) = ", (x, q))
 
     (x, q)
 end
