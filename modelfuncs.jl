@@ -2,6 +2,7 @@ export @modelfunc
 
 using Plots
 using StatsBase: mode
+import JLD
 
 ## TODO: Dream
 #@def_functype modelfunc begin
@@ -31,9 +32,33 @@ macro modelfunc(funcname)
     end
 end
 
+@modelfunc cachedists
+function cachedists(model, key_file, events, points)
+    key, file = key_file
+
+    print("Computing predictions...")
+    preds = predict(model, events)
+    println(" Done.")
+
+    events = permutedims(events, [3, 1, 2])
+    points = permutedims(points, [2, 1])
+    preds = permutedims(preds, [2, 1])
+
+    print("Computing distances...")
+    dists = mapslices(norm, preds - points, 2) |> @λ squeeze(_, 2)
+    println(" Done.")
+
+    print("Saving distances to ", file, " as ", key, "...")
+    JLD.save(file, key, dists)
+    println(" Done.")
+end
+
 @modelfunc pointhist
-pointhist(model, args...; kws...) = pointhist([model], args...; kws...)
-function pointhist(models::AbstractVector, events, points, y, p; model_name=[], color=[])
+pointhist(model, args...; model_name="", kws...) =
+    pointhist([model], args...; model_name=[model_name], kws...)
+pointhist(model::AbstractVector, args...; kws...) =
+    MethodError(pointhist, (model, args...)) |> throw
+function pointhist(models::AbstractVector, events, points, y, p; model_name=[], color=:auto)
     print("Computing predictions...")
     preds = map(x -> predict(x, events), models)
     println(" Done.")
@@ -44,10 +69,10 @@ function pointhist(models::AbstractVector, events, points, y, p; model_name=[], 
 
     print("Generating histogram...")
 
-    cs = @reshape color[_, :]
-    linhist1 = stephist(dists, label=model_name, color=cs)
-    linhist2 = stephist(dists, legend=false, xlims=(0, 4), color=cs)
-    loghist1 = stephist(dists, legend=false, yaxis=(:log10, (1, Inf)), color=cs,
+    color isa AbstractVector && (color = @reshape color[_, :])
+    linhist1 = stephist(dists, label=model_name, color=color)
+    linhist2 = stephist(dists, legend=false, xlims=(0, 4), color=color)
+    loghist1 = stephist(dists, legend=false, yaxis=(:log10, (1, Inf)), color=color,
                         xlabel="Dist. of pred. from true (mm)")
 
     blank = plot(axis=false)

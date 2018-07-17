@@ -452,6 +452,9 @@ function train(file, model, events, points; load=true, train_dist=true, train_re
     end
 end
 
+completely_train(file, events, points) =
+    completely_train(file, nothing, events, points; load=true)
+
 function completely_train(file, model, events, points; load=true)
     model = isfile(file) && load ? BetaML_NN.load(file) : model
 

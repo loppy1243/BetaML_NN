@@ -19,22 +19,20 @@ regularize(events, points) = (permutedims(events, [2, 3, 1]), permutedims(points
 function main(events, points)
     events, points = regularize(events, points)
 
-    model = BetaML_NN.load("completely_other.bson")
-    pointhist([model, randmodel], events, points, 3.0, 0.9, model_name=["Model", "Random"],
-              color=[:green, :red])
-
-    dir = "plots/train/pointhist"
-    !ispath(dir) && mkpath(dir)
-    Plots.png(dir*"/completely_other_rand.png")
+    cachedists("completely_other.bson", "co"=>"dists.jld", events, points)
 end
 
-function randmodel(events)
-    mapslices(events, 1:2) do event
-        cell = ind2sub(event, indmax(event)) |> collect
-        3rand(2).-1.5 + cellpoint(cell)
-    end |> @λ squeeze(_, 2)
-end
-BetaML_NN.predict(::typeof(randmodel), events) = randmodel(events)
+abstract type RandModel end
+abstract type RandNModel{S} end
+
+normal_dist(s) = () -> s*randn(2)
+uniform_dist() = 3rand(2).-1.5
+randmodel(events, dist) = mapslices(events, 1:2) do event
+    cell = ind2sub(event, indmax(event)) |> collect
+    dist() + cellpoint(cell)
+end |> @λ squeeze(_, 2)
+BetaML_NN.predict(::Type{RandModel}, events) = randmodel(events, uniform_dist)
+BetaML_NN.predict(::Type{RandNModel{S}}, events) where S = randmodel(events, normal_dist(S))
 
 ## Set JULIA_NUM_THREADS
 #function main2(events, points)
