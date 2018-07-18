@@ -4,6 +4,8 @@ module BetaML_NN
 
 #import Base.Threads: @threads
 import Plots; Plots.gr()
+import JLD
+using FileIO
 
 include("util.jl")
 include("consts.jl")
@@ -16,10 +18,16 @@ include("other.jl")
 
 regularize(events, points) = (permutedims(events, [2, 3, 1]), permutedims(points, [2, 1]))
 
-function main(events, points)
-    events, points = regularize(events, points)
+function main()
+    model = BetaML_NN.load("models/completely_other.bson")
 
-    cachedists("completely_other.bson", "co"=>"dists.jld", events, points)
+    for group in ["train", "valid"]
+        pointhist([model, RandModel], 3.0, 0.9,
+                  key=["$group/completely_other", "$group/rand"],
+                  model_name=["CompletelyOther", "Random"], color=[:red, :blue],
+                  size=(1200, 800))
+        Plots.png("plots/$group/pointhist/co_v_rand.png")
+    end
 end
 
 abstract type RandModel end

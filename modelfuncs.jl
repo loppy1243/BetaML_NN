@@ -1,8 +1,9 @@
 export @modelfunc
 
+import JLD2
+
 using Plots
 using StatsBase: mode
-import JLD
 
 ## TODO: Dream
 #@def_functype modelfunc begin
@@ -23,74 +24,63 @@ import JLD
 #    end
 #end
 
-macro modelfunc(funcname)
-    fname = esc(funcname)
+#macro modelfunc(funcname)
+#    fname = esc(funcname)
+#
+#    quote
+#        $fname(modelfile::AbstractString, events, cells, args...; kws...) =
+#            $fname(BetaML_NN.load(modelfile), events, cells, args...; kws...)
+#    end
+#end
 
-    quote
-        $fname(modelfile::AbstractString, events, cells, args...; kws...) =
-            $fname(BetaML_NN.load(modelfile), events, cells, args...; kws...)
-    end
+function pointhist(model, args...; keys=nothing, model_name="", kws...)
+    file === nothing && error("Must specify keys to load distances")
+    pointhist([model], args...; key=[key], model_name=[model_name], kws...)
 end
-
-@modelfunc cachedists
-function cachedists(model, key_file, events, points)
-    key, file = key_file
-
-    print("Computing predictions...")
-    preds = predict(model, events)
-    println(" Done.")
-
-    events = permutedims(events, [3, 1, 2])
-    points = permutedims(points, [2, 1])
-    preds = permutedims(preds, [2, 1])
-
-    print("Computing distances...")
-    dists = mapslices(norm, preds - points, 2) |> @λ squeeze(_, 2)
-    println(" Done.")
-
-    print("Saving distances to ", file, " as ", key, "...")
-    JLD.save(file, key, dists)
-    println(" Done.")
-end
-
-@modelfunc pointhist
-pointhist(model, args...; model_name="", kws...) =
-    pointhist([model], args...; model_name=[model_name], kws...)
 pointhist(model::AbstractVector, args...; kws...) =
     MethodError(pointhist, (model, args...)) |> throw
-function pointhist(models::AbstractVector, events, points, y, p; model_name=[], color=:auto)
-    print("Computing predictions...")
-    preds = map(x -> predict(x, events), models)
-    println(" Done.")
-  
-    print("Computing distances...")
-    dists = map(x -> squeeze(mapslices(norm, x - points, 1), 1), preds)
+function pointhist(models::AbstractVector, y, p;
+                   key=String[], model_name=String[], color=:auto, xlims=(0.0, 4.0),
+                   size=(500, 500))
+    isempty(key) && error("Must specify keys to load distances")
+
+    print("Loading distances...")
+    dists = JLD2.jldopen("data/dists.jld2", "r") do io
+        dists = Array{Float64}(length(io[first(key)]), length(key))
+        for (i, k) in enumerate(key)
+            dists[:, i] .= io[k]
+        end
+        dists
+    end
     println(" Done.")
 
     print("Generating histogram...")
 
     color isa AbstractVector && (color = @reshape color[_, :])
-    linhist1 = stephist(dists, label=model_name, color=color)
-    linhist2 = stephist(dists, legend=false, xlims=(0, 4), color=color)
-    loghist1 = stephist(dists, legend=false, yaxis=(:log10, (1, Inf)), color=color,
-                        xlabel="Dist. of pred. from true (mm)")
+    model_name = @reshape model_name[_, :]
 
-    blank = plot(axis=false)
+    linhist1 = stephist(dists, title="Full", label=model_name, color=color)
+    linhist2 = stephist(dists, title="Closeup", legend=false, xlims=xlims, color=color)
+    loghist1 = stephist(dists, title="Log", legend=false, yaxis=(:log10, (1, Inf)),
+                        color=color, xlabel="Dist. of pred. from true (mm)")
+    normed = stephist(dists, normed=true, title="Normed", legend=false, xlims=xlims,
+                      color=color, xlabel="Dist. of pred. from true (mm)")
+
     hist = plot(layout=(1, 2), plot(layout=(2, 1), linhist1, loghist1),
-                               plot(layout=(2, 1), linhist2, blank),
-                               size=(3*500, 500))
+                               plot(layout=(2, 1), linhist2, normed),
+                               size=size)
     println(" Done.")
 
     print("Computing statistics...") 
-    ms = map(minimum, dists)
-    Ms = map(maximum, dists)
-    mes = map(mean, dists)
-    mos = map(mode, dists)
-    sts = map((x, y) -> std(x, mean=y), dists, mes)
-    xs = map(dists) do ds
+    ms = mapslices(minimum, dists, 1)
+    Ms =  mapslices(maximum, dists, 1)
+    mes = mapslices(mean, dists, 1)
+    mos = mapslices(mode, dists, 1)
+    sts = map(i-> std(dists[:, i], mean=mes[i]), indices(dists, 2))
+    xs = mapslices(dists, 1) do ds
         count(ds .< y)/length(ds)
     end
-    qs = map(dists) do ds
+    qs = mapslices(dists, 1) do ds
         Base.quantile(ds, p)
     end
     println(" Done.")
@@ -106,7 +96,6 @@ function pointhist(models::AbstractVector, events, points, y, p; model_name=[], 
     (hist, xs, qs, ms, Ms, mes, mos, sts)
 end
 
-@modelfunc quantile
 function quantile(model, events, points, y, p)
     print("Computing predictions...")
     pred_points = predict(model, events)
