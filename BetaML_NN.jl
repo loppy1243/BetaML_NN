@@ -21,12 +21,17 @@ regularize(events, points) = (permutedims(events, [2, 3, 1]), permutedims(points
 function main()
     model = BetaML_NN.load("models/completely_other.bson")
 
-    for group in ["train", "valid"]
-        pointhist([model, RandModel], 3.0, 0.9,
-                  key=["$group/completely_other", "$group/rand"],
-                  model_name=["CompletelyOther", "Random"], color=[:red, :blue],
-                  size=(1200, 800))
-        Plots.png("plots/$group/pointhist/co_v_rand.png")
+    JLD2.jldopen("data/params.jld2", "w") do io
+        ps = Flux.params(model) .|> data
+        co = JLD2.Group(io, "completely_other")
+        params = JLD2.Group(co, "params")
+        for (p, n) in zip(ps, ["conv", "conv_bias", "dense1", "dense1_bias", "dense2", "dense2_bias"])
+            params[n] = p
+        end
+        hyparams = JLD2.Group(co, "hyparams")
+        for (k, v) in hyperparams(model)
+            hyparams[string(k)] = v
+        end
     end
 end
 

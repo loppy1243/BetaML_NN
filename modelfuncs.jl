@@ -33,8 +33,8 @@ using StatsBase: mode
 #    end
 #end
 
-function pointhist(model, args...; keys=nothing, model_name="", kws...)
-    file === nothing && error("Must specify keys to load distances")
+function pointhist(model, args...; key=nothing, model_name="", kws...)
+    key === nothing && error("Must specify keys to load distances")
     pointhist([model], args...; key=[key], model_name=[model_name], kws...)
 end
 pointhist(model::AbstractVector, args...; kws...) =
@@ -59,11 +59,11 @@ function pointhist(models::AbstractVector, y, p;
     color isa AbstractVector && (color = @reshape color[_, :])
     model_name = @reshape model_name[_, :]
 
-    linhist1 = stephist(dists, title="Full", label=model_name, color=color)
-    linhist2 = stephist(dists, title="Closeup", legend=false, xlims=xlims, color=color)
-    loghist1 = stephist(dists, title="Log", legend=false, yaxis=(:log10, (1, Inf)),
+    linhist1 = histogram(dists, title="Full", label=model_name, color=color)
+    linhist2 = histogram(dists, title="Closeup", legend=false, xlims=xlims, color=color)
+    loghist1 = histogram(dists, title="Log", legend=false, yaxis=(:log10, (1, Inf)),
                         color=color, xlabel="Dist. of pred. from true (mm)")
-    normed = stephist(dists, normed=true, title="Normed", legend=false, xlims=xlims,
+    normed = histogram(dists, normed=true, title="Normed", legend=false, xlims=xlims,
                       color=color, xlabel="Dist. of pred. from true (mm)")
 
     hist = plot(layout=(1, 2), plot(layout=(2, 1), linhist1, loghist1),
